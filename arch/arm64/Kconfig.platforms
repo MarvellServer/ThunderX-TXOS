@@ -265,6 +265,12 @@ config ARCH_THUNDER3
 	  This enables support for Marvell's ThunderX3 CN11K family of
 	  server processors.
 
+config ARCH_PALLADIUM
+	bool "Palladium emulator"
+	default n
+	help
+	  This enables pci vulcan hacks required for Palladium boot.
+
 config ARCH_UNIPHIER
 	bool "Socionext UniPhier SoC Family"
 	select ARCH_HAS_RESET_CONTROLLER

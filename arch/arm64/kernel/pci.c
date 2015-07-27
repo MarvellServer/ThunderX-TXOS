@@ -144,6 +144,18 @@ pci_acpi_setup_ecam_mapping(struct acpi_pci_root *root)
 		return NULL;
 	}
 
+#if defined(CONFIG_ARCH_PALLADIUM) && defined(CONFIG_PCI)
+	{
+		extern int vulcan_pci_init(void *pci, struct pci_ops *pops);
+		int err = vulcan_pci_init(cfg, &pci_generic_ecam_ops.pci_ops);
+		if (err) {
+			dev_err(dev, "vulcan controller not enabled\n");
+			pci_ecam_free(cfg);
+			return NULL;
+		}
+	}
+#endif
+
 	return cfg;
 }
 
