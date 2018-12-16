@@ -1,0 +1,35 @@
+/*
+ * dts file for Marvell ThunderX3 Reference Platforms
+ *
+ * Copyright (c) 2018 Marvell International Ltd.
+ * Copyright (c) 2017 Cavium Inc.
+ * Copyright (c) 2013-2016 Broadcom
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of
+ * the License, or (at your option) any later version.
+ */
+
+/dts-v1/;
+
+#include "thunder3-11xxx.dtsi"
+
+/ {
+	model = "Marvell ThunderX3 CN11XXX";
+	compatible = "cavium,thunderx3-cn11000";
+
+	memory {
+		device_type = "memory";
+		reg = <0x00000000 0x80000000 0x0 0x80000000>,  /* 2G @ 2G  */
+		      <0x00000008 0x80000000 0x1 0x60000000>;  /* 6G @ 34G */
+	};
+
+	aliases {
+		serial0 = &uart0;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+};
