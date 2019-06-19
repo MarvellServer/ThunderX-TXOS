@@ -540,10 +540,23 @@ pgprot_t ttm_io_prot(uint32_t caching_flags, pgprot_t tmp)
 #endif
 #if defined(__ia64__) || defined(__arm__) || defined(__aarch64__) || \
     defined(__powerpc__) || defined(__mips__)
-	if (caching_flags & TTM_PL_FLAG_WC)
+	if (caching_flags & TTM_PL_FLAG_WC) {
 		tmp = pgprot_writecombine(tmp);
-	else
+#if defined(CONFIG_ARM64)
+		/*
+		 * Fix up arm64 braindamage of using NORMAL_NC for write
+		 * combining when Device GRE exists specifically for the
+		 * purpose. Needed on ThunderX2.
+		 */
+		switch (read_cpuid_id() & MIDR_CPU_MODEL_MASK) {
+		case MIDR_CPU_MODEL(ARM_CPU_IMP_BRCM, BRCM_CPU_PART_VULCAN):
+		case MIDR_CPU_MODEL(0x43, 0x0af):  /* Cavium ThunderX2 */
+			tmp = __pgprot_modify(tmp, PTE_ATTRINDX_MASK, PTE_ATTRINDX(MT_DEVICE_GRE) | PTE_PXN | PTE_UXN);
+		}
+#endif
+	} else {
 		tmp = pgprot_noncached(tmp);
+	}
 #endif
 #if defined(__sparc__)
 	tmp = pgprot_noncached(tmp);
