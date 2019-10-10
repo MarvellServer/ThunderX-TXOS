@@ -47,7 +47,7 @@ struct frame_record {
 };
 
 struct rt_sigframe_user_layout {
-	struct rt_sigframe __user *sigframe;
+	void __user *sigframe;
 	struct frame_record __user *next_frame;
 
 	unsigned long size;	/* size of allocated sigframe data */
@@ -60,19 +60,28 @@ struct rt_sigframe_user_layout {
 	unsigned long end_offset;
 };
 
+static unsigned long get_sigset(sigset_t *set, const sigset_t *mask)
+{
+	return __copy_from_user(set, mask, sizeof(*set));
+}
+
+static unsigned long put_sigset(const sigset_t *set, sigset_t *mask)
+{
+	return __copy_to_user(mask, set, sizeof(*set));
+}
+
 #define BASE_SIGFRAME_SIZE round_up(sizeof(struct rt_sigframe), 16)
 #define TERMINATOR_SIZE round_up(sizeof(struct _aarch64_ctx), 16)
 #define EXTRA_CONTEXT_SIZE round_up(sizeof(struct extra_context), 16)
+#define SIGCONTEXT_RESERVED_SIZE sizeof(((struct sigcontext *)0)->__reserved)
+#define RT_SIGFRAME_RESERVED_OFFSET offsetof(struct rt_sigframe, uc.uc_mcontext.__reserved)
 
 static void init_user_layout(struct rt_sigframe_user_layout *user)
 {
-	const size_t reserved_size =
-		sizeof(user->sigframe->uc.uc_mcontext.__reserved);
-
 	memset(user, 0, sizeof(*user));
-	user->size = offsetof(struct rt_sigframe, uc.uc_mcontext.__reserved);
+	user->size = RT_SIGFRAME_RESERVED_OFFSET;
 
-	user->limit = user->size + reserved_size;
+	user->limit = user->size + SIGCONTEXT_RESERVED_SIZE;
 
 	user->limit -= TERMINATOR_SIZE;
 	user->limit -= EXTRA_CONTEXT_SIZE;
@@ -486,7 +495,7 @@ static int restore_sigframe(struct pt_regs *regs,
 	int i, err;
 	struct user_ctxs user;
 
-	err = __copy_from_user(&set, &sf->uc.uc_sigmask, sizeof(set));
+	err = get_sigset(&set, &sf->uc.uc_sigmask);
 	if (err == 0)
 		set_current_blocked(&set);
 
@@ -621,7 +630,7 @@ static int setup_sigframe(struct rt_sigframe_user_layout *user,
 
 	__put_user_error(current->thread.fault_address, &sf->uc.uc_mcontext.fault_address, err);
 
-	err |= __copy_to_user(&sf->uc.uc_sigmask, set, sizeof(*set));
+	err |= put_sigset(set, &sf->uc.uc_sigmask);
 
 	if (err == 0) {
 		struct fpsimd_context __user *fpsimd_ctx =
@@ -709,7 +718,7 @@ static int get_sigframe(struct rt_sigframe_user_layout *user,
 	user->next_frame = (struct frame_record __user *)sp;
 
 	sp = round_down(sp, 16) - sigframe_size(user);
-	user->sigframe = (struct rt_sigframe __user *)sp;
+	user->sigframe = (void __user *)sp;
 
 	/*
 	 * Check that we can actually write to the signal frame.
@@ -753,7 +762,7 @@ static int setup_rt_frame(int usig, struct ksignal *ksig, sigset_t *set,
 	frame = user.sigframe;
 
 	__put_user_error(0, &frame->uc.uc_flags, err);
-	__put_user_error(NULL, &frame->uc.uc_link, err);
+	__put_user_error((typeof(frame->uc.uc_link)) 0, &frame->uc.uc_link, err);
 
 	err |= __save_altstack(&frame->uc.uc_stack, regs->sp);
 	err |= setup_sigframe(&user, regs, set);
