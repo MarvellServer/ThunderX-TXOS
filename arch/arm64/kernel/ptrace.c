@@ -1685,6 +1685,10 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 	void __user *datap = compat_ptr(data);
 	int ret;
 
+	if (is_ilp32_task()) {
+		return compat_ptrace_request(child, request, caddr, cdata);
+	}
+
 	switch (request) {
 		case PTRACE_PEEKUSR:
 			ret = compat_ptrace_read_user(child, addr, datap);
