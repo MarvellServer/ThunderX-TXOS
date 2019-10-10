@@ -806,6 +806,12 @@ static void handle_signal(struct ksignal *ksig, struct pt_regs *regs)
 			ret = compat_setup_rt_frame(usig, ksig, oldset, regs);
 		else
 			ret = compat_setup_frame(usig, ksig, oldset, regs);
+	} else if (is_ilp32_task()) {
+#if defined(CONFIG_ARM64_ILP32)
+		int ilp32_setup_rt_frame(int usig, struct ksignal *ksig,
+			sigset_t *set, struct pt_regs *regs);
+		ret = ilp32_setup_rt_frame(usig, ksig, oldset, regs);
+#endif
 	} else {
 		ret = setup_rt_frame(usig, ksig, oldset, regs);
 	}

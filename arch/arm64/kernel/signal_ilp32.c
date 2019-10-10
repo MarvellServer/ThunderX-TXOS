@@ -33,12 +33,23 @@
 #include <asm/traps.h>
 #include <asm/vdso.h>
 
+struct ilp32_ucontext {
+	u32		uc_flags;
+	u32		uc_link;
+	compat_stack_t	uc_stack;
+	compat_sigset_t	uc_sigmask;
+	/* glibc uses a 1024-bit sigset_t */
+	__u8		__unused[1024 / 8 - sizeof(compat_sigset_t)];
+	/* last for future expansion */
+	struct sigcontext uc_mcontext;
+};
+
 /*
  * Do a signal return; undo the signal stack. These are aligned to 128-bit.
  */
 struct rt_sigframe {
-	struct siginfo info;
-	struct ucontext uc;
+	struct compat_siginfo info;
+	struct ilp32_ucontext uc;
 };
 
 struct frame_record {
@@ -60,14 +71,29 @@ struct rt_sigframe_user_layout {
 	unsigned long end_offset;
 };
 
-static unsigned long get_sigset(sigset_t *set, const sigset_t *mask)
+static int get_sigset(sigset_t *set, const compat_sigset_t __user *mask)
 {
-	return __copy_from_user(set, mask, sizeof(*set));
+	compat_sigset_t set32;
+
+	BUILD_BUG_ON(sizeof(compat_sigset_t) != sizeof(sigset_t));
+
+	if (copy_from_user(&set32, mask, sizeof(set32)))
+		return -EFAULT;
+
+	set->sig[0] = set32.sig[0] | (((long)set32.sig[1]) << 32);
+	return 0;
 }
 
-static unsigned long put_sigset(const sigset_t *set, sigset_t *mask)
+static int put_sigset(const sigset_t *set, compat_sigset_t __user *mask)
 {
-	return __copy_to_user(mask, set, sizeof(*set));
+	compat_sigset_t set32;
+
+	BUILD_BUG_ON(sizeof(compat_sigset_t) != sizeof(sigset_t));
+
+	set32.sig[0] = set->sig[0] & 0xffffffffull;
+	set32.sig[1] = set->sig[0] >> 32;
+
+	return copy_to_user(mask, &set32, sizeof(set32));
 }
 
 #define BASE_SIGFRAME_SIZE round_up(sizeof(struct rt_sigframe), 16)
@@ -532,7 +558,7 @@ static int restore_sigframe(struct pt_regs *regs,
 	return err;
 }
 
-SYSCALL_DEFINE0(rt_sigreturn)
+COMPAT_SYSCALL_DEFINE0(ilp32_rt_sigreturn)
 {
 	struct pt_regs *regs = current_pt_regs();
 	struct rt_sigframe __user *frame;
@@ -555,7 +581,7 @@ SYSCALL_DEFINE0(rt_sigreturn)
 	if (restore_sigframe(regs, frame))
 		goto badframe;
 
-	if (restore_altstack(&frame->uc.uc_stack))
+	if (compat_restore_altstack(&frame->uc.uc_stack))
 		goto badframe;
 
 	return regs->regs[0];
@@ -739,15 +765,17 @@ static void setup_return(struct pt_regs *regs, struct k_sigaction *ka,
 	regs->regs[29] = (unsigned long)&user->next_frame->fp;
 	regs->pc = (unsigned long)ka->sa.sa_handler;
 
-	if (ka->sa.sa_flags & SA_RESTORER)
+	// FIXME: What's needed here?
+	if (ka->sa.sa_flags & SA_RESTORER) {
+		BUG();
 		sigtramp = ka->sa.sa_restorer;
-	else
-		sigtramp = VDSO_SYMBOL(current->mm->context.vdso, sigtramp);
+	} else
+		sigtramp = VDSO_SYMBOL(current->mm->context.vdso, sigtramp_ilp32);
 
 	regs->regs[30] = (unsigned long)sigtramp;
 }
 
-static int setup_rt_frame(int usig, struct ksignal *ksig, sigset_t *set,
+int ilp32_setup_rt_frame(int usig, struct ksignal *ksig, sigset_t *set,
 			  struct pt_regs *regs)
 {
 	struct rt_sigframe_user_layout user;
@@ -764,211 +792,16 @@ static int setup_rt_frame(int usig, struct ksignal *ksig, sigset_t *set,
 	__put_user_error(0, &frame->uc.uc_flags, err);
 	__put_user_error((typeof(frame->uc.uc_link)) 0, &frame->uc.uc_link, err);
 
-	err |= __save_altstack(&frame->uc.uc_stack, regs->sp);
+	err |= __compat_save_altstack(&frame->uc.uc_stack, regs->sp);
 	err |= setup_sigframe(&user, regs, set);
 	if (err == 0) {
 		setup_return(regs, &ksig->ka, &user, usig);
 		if (ksig->ka.sa.sa_flags & SA_SIGINFO) {
-			err |= copy_siginfo_to_user(&frame->info, &ksig->info);
+			err |= copy_siginfo_to_user32(&frame->info, &ksig->info);
 			regs->regs[1] = (unsigned long)&frame->info;
 			regs->regs[2] = (unsigned long)&frame->uc;
 		}
 	}
 
 	return err;
-}
-
-static void setup_restart_syscall(struct pt_regs *regs)
-{
-	if (is_compat_task())
-		compat_setup_restart_syscall(regs);
-	else
-		regs->regs[8] = __NR_restart_syscall;
-}
-
-/*
- * OK, we're invoking a handler
- */
-static void handle_signal(struct ksignal *ksig, struct pt_regs *regs)
-{
-	struct task_struct *tsk = current;
-	sigset_t *oldset = sigmask_to_save();
-	int usig = ksig->sig;
-	int ret;
-
-	rseq_signal_deliver(ksig, regs);
-
-	/*
-	 * Set up the stack frame
-	 */
-	if (is_compat_task()) {
-		if (ksig->ka.sa.sa_flags & SA_SIGINFO)
-			ret = compat_setup_rt_frame(usig, ksig, oldset, regs);
-		else
-			ret = compat_setup_frame(usig, ksig, oldset, regs);
-	} else {
-		ret = setup_rt_frame(usig, ksig, oldset, regs);
-	}
-
-	/*
-	 * Check that the resulting registers are actually sane.
-	 */
-	ret |= !valid_user_regs(&regs->user_regs, current);
-
-	/*
-	 * Fast forward the stepping logic so we step into the signal
-	 * handler.
-	 */
-	if (!ret)
-		user_fastforward_single_step(tsk);
-
-	signal_setup_done(ret, ksig, 0);
-}
-
-/*
- * Note that 'init' is a special process: it doesn't get signals it doesn't
- * want to handle. Thus you cannot kill init even with a SIGKILL even by
- * mistake.
- *
- * Note that we go through the signals twice: once to check the signals that
- * the kernel can handle, and then we build all the user-level signal handling
- * stack-frames in one go after that.
- */
-static void do_signal(struct pt_regs *regs)
-{
-	unsigned long continue_addr = 0, restart_addr = 0;
-	int retval = 0;
-	struct ksignal ksig;
-	bool syscall = in_syscall(regs);
-
-	/*
-	 * If we were from a system call, check for system call restarting...
-	 */
-	if (syscall) {
-		continue_addr = regs->pc;
-		restart_addr = continue_addr - (compat_thumb_mode(regs) ? 2 : 4);
-		retval = regs->regs[0];
-
-		/*
-		 * Avoid additional syscall restarting via ret_to_user.
-		 */
-		forget_syscall(regs);
-
-		/*
-		 * Prepare for system call restart. We do this here so that a
-		 * debugger will see the already changed PC.
-		 */
-		switch (retval) {
-		case -ERESTARTNOHAND:
-		case -ERESTARTSYS:
-		case -ERESTARTNOINTR:
-		case -ERESTART_RESTARTBLOCK:
-			regs->regs[0] = regs->orig_x0;
-			regs->pc = restart_addr;
-			break;
-		}
-	}
-
-	/*
-	 * Get the signal to deliver. When running under ptrace, at this point
-	 * the debugger may change all of our registers.
-	 */
-	if (get_signal(&ksig)) {
-		/*
-		 * Depending on the signal settings, we may need to revert the
-		 * decision to restart the system call, but skip this if a
-		 * debugger has chosen to restart at a different PC.
-		 */
-		if (regs->pc == restart_addr &&
-		    (retval == -ERESTARTNOHAND ||
-		     retval == -ERESTART_RESTARTBLOCK ||
-		     (retval == -ERESTARTSYS &&
-		      !(ksig.ka.sa.sa_flags & SA_RESTART)))) {
-			regs->regs[0] = -EINTR;
-			regs->pc = continue_addr;
-		}
-
-		handle_signal(&ksig, regs);
-		return;
-	}
-
-	/*
-	 * Handle restarting a different system call. As above, if a debugger
-	 * has chosen to restart at a different PC, ignore the restart.
-	 */
-	if (syscall && regs->pc == restart_addr) {
-		if (retval == -ERESTART_RESTARTBLOCK)
-			setup_restart_syscall(regs);
-		user_rewind_single_step(current);
-	}
-
-	restore_saved_sigmask();
-}
-
-asmlinkage void do_notify_resume(struct pt_regs *regs,
-				 unsigned long thread_flags)
-{
-	/*
-	 * The assembly code enters us with IRQs off, but it hasn't
-	 * informed the tracing code of that for efficiency reasons.
-	 * Update the trace code with the current status.
-	 */
-	trace_hardirqs_off();
-
-	do {
-		/* Check valid user FS if needed */
-		addr_limit_user_check();
-
-		if (thread_flags & _TIF_NEED_RESCHED) {
-			/* Unmask Debug and SError for the next task */
-			local_daif_restore(DAIF_PROCCTX_NOIRQ);
-
-			schedule();
-		} else {
-			local_daif_restore(DAIF_PROCCTX);
-
-			if (thread_flags & _TIF_UPROBE)
-				uprobe_notify_resume(regs);
-
-			if (thread_flags & _TIF_SIGPENDING)
-				do_signal(regs);
-
-			if (thread_flags & _TIF_NOTIFY_RESUME) {
-				clear_thread_flag(TIF_NOTIFY_RESUME);
-				tracehook_notify_resume(regs);
-				rseq_handle_notify_resume(NULL, regs);
-			}
-
-			if (thread_flags & _TIF_FOREIGN_FPSTATE)
-				fpsimd_restore_current_state();
-		}
-
-		local_daif_mask();
-		thread_flags = READ_ONCE(current_thread_info()->flags);
-	} while (thread_flags & _TIF_WORK_MASK);
-}
-
-unsigned long __ro_after_init signal_minsigstksz;
-
-/*
- * Determine the stack space required for guaranteed signal devliery.
- * This function is used to populate AT_MINSIGSTKSZ at process startup.
- * cpufeatures setup is assumed to be complete.
- */
-void __init minsigstksz_setup(void)
-{
-	struct rt_sigframe_user_layout user;
-
-	init_user_layout(&user);
-
-	/*
-	 * If this fails, SIGFRAME_MAXSZ needs to be enlarged.  It won't
-	 * be big enough, but it's our best guess:
-	 */
-	if (WARN_ON(setup_sigframe_layout(&user, true)))
-		return;
-
-	signal_minsigstksz = sigframe_size(&user) +
-		round_up(sizeof(struct frame_record), 16) +
-		16; /* max alignment padding */
 }
