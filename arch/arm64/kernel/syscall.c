@@ -156,8 +156,22 @@ static inline void sve_user_discard(void)
 
 asmlinkage void el0_svc_handler(struct pt_regs *regs)
 {
+	const syscall_fn_t *table = sys_call_table;
+
+	if (unlikely(is_ilp32_task())) {
+		table = ilp32_sys_call_table;
+		regs->regs[0] &= UINT_MAX;
+		regs->regs[1] &= UINT_MAX;
+		regs->regs[2] &= UINT_MAX;
+		regs->regs[3] &= UINT_MAX;
+		regs->regs[4] &= UINT_MAX;
+		regs->regs[5] &= UINT_MAX;
+		regs->regs[6] &= UINT_MAX;
+		regs->regs[7] &= UINT_MAX;
+	}
+
 	sve_user_discard();
-	el0_svc_common(regs, regs->regs[8], __NR_syscalls, sys_call_table);
+	el0_svc_common(regs, regs->regs[8], __NR_syscalls, table);
 }
 
 #ifdef CONFIG_COMPAT

@@ -15,9 +15,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#if defined(__ILP32__) || defined(__SYSCALL_COMPAT)
+#define __ARCH_WANT_SYNC_FILE_RANGE2
+#else
 #define __ARCH_WANT_RENAMEAT
-#define __ARCH_WANT_NEW_STAT
 #define __ARCH_WANT_SET_GET_RLIMIT
+#endif
+
+#define __ARCH_WANT_NEW_STAT
 #define __ARCH_WANT_TIME32_SYSCALLS
 
 #include <asm-generic/unistd.h>
