@@ -324,7 +324,7 @@ unsigned long randomize_stack_top(unsigned long stack_top)
 unsigned long arch_randomize_brk(struct mm_struct *mm)
 {
 	/* Is the current task 32bit ? */
-	if (!IS_ENABLED(CONFIG_64BIT) || is_compat_task())
+	if (!IS_ENABLED(CONFIG_64BIT) || is_32bit_task())
 		return randomize_page(mm->brk, SZ_32M);
 
 	return randomize_page(mm->brk, SZ_1G);
@@ -335,7 +335,7 @@ unsigned long arch_mmap_rnd(void)
 	unsigned long rnd;
 
 #ifdef CONFIG_HAVE_ARCH_MMAP_RND_COMPAT_BITS
-	if (is_compat_task())
+	if (is_32bit_task())
 		rnd = get_random_long() & ((1UL << mmap_rnd_compat_bits) - 1);
 	else
 #endif /* CONFIG_HAVE_ARCH_MMAP_RND_COMPAT_BITS */
