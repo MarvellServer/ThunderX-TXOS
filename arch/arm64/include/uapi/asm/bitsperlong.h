@@ -17,7 +17,13 @@
 #ifndef __ASM_BITSPERLONG_H
 #define __ASM_BITSPERLONG_H
 
-#define __BITS_PER_LONG 64
+#if defined(__LP64__)
+# define __BITS_PER_LONG 64
+#elif defined(__ILP32__)
+# define __BITS_PER_LONG 32
+#else
+# error "Unsupported ABI"
+#endif
 
 #include <asm-generic/bitsperlong.h>
 
