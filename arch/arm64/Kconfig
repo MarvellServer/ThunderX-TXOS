@@ -1286,6 +1286,7 @@ endif
 config ARM64_ILP32
 	bool "Kernel support for ILP32"
 	select COMPAT
+	select BINFMT_ARM64_ILP32 if BINFMT_ELF
 	default y
 	help
 	  This option enables support for AArch64 ILP32 user space.  ILP32
