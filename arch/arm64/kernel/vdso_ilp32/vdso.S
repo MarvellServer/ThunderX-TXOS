@@ -10,12 +10,12 @@
 #include <linux/const.h>
 #include <asm/page.h>
 
-	.globl vdso_start, vdso_end
+	.globl vdso_ilp32_start, vdso_ilp32_end
 	.section .rodata
 	.balign PAGE_SIZE
-vdso_start:
-	.incbin "arch/arm64/kernel/vdso/vdso.so"
+vdso_ilp32_start:
+	.incbin "arch/arm64/kernel/vdso_ilp32/vdso.so"
 	.balign PAGE_SIZE
-vdso_end:
+vdso_ilp32_end:
 
 	.previous

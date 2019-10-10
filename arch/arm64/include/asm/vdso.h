@@ -18,6 +18,9 @@
 #ifdef CONFIG_COMPAT_VDSO
 #include <generated/vdso32-offsets.h>
 #endif
+#ifdef CONFIG_ARM64_ILP32_VDSO
+#include <generated/vdso-ilp32-offsets.h>
+#endif
 
 #define VDSO_SYMBOL(base, name)						   \
 ({									   \

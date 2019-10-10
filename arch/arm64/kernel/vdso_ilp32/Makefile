@@ -8,7 +8,7 @@
 
 # Absolute relocation type $(ARCH_REL_TYPE_ABS) needs to be defined before
 # the inclusion of generic Makefile.
-ARCH_REL_TYPE_ABS := R_AARCH64_JUMP_SLOT|R_AARCH64_GLOB_DAT|R_AARCH64_ABS64
+ARCH_REL_TYPE_ABS := R_AARCH64_P32_JUMP_SLOT|R_AARCH64_P32_GLOB_DAT|R_AARCH64_P32_ABS32
 include $(srctree)/lib/vdso/Makefile
 
 obj-vdso := vgettimeofday.o note.o sigreturn.o
@@ -17,13 +17,35 @@ obj-vdso := vgettimeofday.o note.o sigreturn.o
 targets := $(obj-vdso) vdso.so vdso.so.dbg
 obj-vdso := $(addprefix $(obj)/, $(obj-vdso))
 
+KBUILD_LDFLAGS := -EL -maarch64elf32
+
 ldflags-y := -shared -nostdlib -soname=linux-vdso.so.1 --hash-style=sysv \
 		--build-id -n -T
 
 ccflags-y := -fno-common -fno-builtin -fno-stack-protector -ffixed-x18
 ccflags-y += -DDISABLE_BRANCH_PROFILING
 
-CFLAGS_REMOVE_vgettimeofday.o = $(CC_FLAGS_FTRACE) -Os
+CFLAGS_REMOVE_ALL = \
+	-fstack-protector \
+	-fstack-protector-strong \
+	-mabi=lp64 \
+	$(CC_FLAGS_FTRACE) \
+	 -Os
+
+CFLAGS_ADD_ALL = \
+	-mabi=ilp32 \
+	-nostdlib \
+	-Wno-int-to-pointer-cast \
+	-Wno-shift-count-overflow
+
+CFLAGS_REMOVE_vgettimeofday.o += $(CFLAGS_REMOVE_ALL)
+
+CFLAGS_REMOVE_note.o += $(CFLAGS_REMOVE_ALL)
+CFLAGS_note.o += $(CFLAGS_ADD_ALL)
+
+AFLAGS_REMOVE_sigreturn.o += $(CFLAGS_REMOVE_ALL)
+AFLAGS_sigreturn.o += $(CFLAGS_ADD_ALL)
+
 KBUILD_CFLAGS			+= $(DISABLE_LTO)
 KASAN_SANITIZE			:= n
 UBSAN_SANITIZE			:= n
@@ -31,6 +53,7 @@ OBJECT_FILES_NON_STANDARD	:= y
 KCOV_INSTRUMENT			:= n
 
 CFLAGS_vgettimeofday.o = -O2 -mcmodel=tiny
+CFLAGS_vgettimeofday.o += $(CFLAGS_ADD_ALL)
 
 ifneq ($(c-gettimeofday-y),)
   CFLAGS_vgettimeofday.o += -include $(c-gettimeofday-y)
@@ -67,7 +90,7 @@ gen-vdsosym := $(srctree)/$(src)/gen_vdso_offsets.sh
 quiet_cmd_vdsosym = VDSOSYM $@
       cmd_vdsosym = $(NM) $< | $(gen-vdsosym) | LC_ALL=C sort > $@
 
-include/generated/vdso-offsets.h: $(obj)/vdso.so.dbg FORCE
+include/generated/vdso-ilp32-offsets.h: $(obj)/vdso.so.dbg FORCE
 	$(call if_changed,vdsosym)
 
 # Actual build commands
@@ -76,10 +99,10 @@ quiet_cmd_vdsold_and_vdso_check = LD      $@
 
 # Install commands for the unstripped file
 quiet_cmd_vdso_install = INSTALL $@
-      cmd_vdso_install = cp $(obj)/$@.dbg $(MODLIB)/vdso/$@
+      cmd_vdso_install = cp $(obj)/vdso.so.dbg $(MODLIB)/vdso/$@
 
-vdso.so: $(obj)/vdso.so.dbg
+vdso_ilp32.so: $(obj)/vdso.so.dbg
 	@mkdir -p $(MODLIB)/vdso
 	$(call cmd,vdso_install)
 
-vdso_install: vdso.so
+vdso_install: vdso_ilp32.so

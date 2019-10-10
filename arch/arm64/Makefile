@@ -142,6 +142,8 @@ zinstall install:
 PHONY += vdso_install
 vdso_install:
 	$(Q)$(MAKE) $(build)=arch/arm64/kernel/vdso $@
+	$(if $(CONFIG_ARM64_ILP32_VDSO),$(Q)$(MAKE) \
+		$(build)=arch/arm64/kernel/vdso_ilp32 $@)
 
 # We use MRPROPER_FILES and CLEAN_FILES now
 archclean:
@@ -160,6 +162,9 @@ vdso_prepare: prepare0
 	$(if $(CONFIG_COMPAT_VDSO),$(Q)$(MAKE) \
 		$(build)=arch/arm64/kernel/vdso32  \
 		include/generated/vdso32-offsets.h)
+	$(if $(CONFIG_ARM64_ILP32_VDSO),$(Q)$(MAKE) \
+		$(build)=arch/arm64/kernel/vdso_ilp32  \
+		include/generated/vdso-ilp32-offsets.h)
 endif
 
 define archhelp

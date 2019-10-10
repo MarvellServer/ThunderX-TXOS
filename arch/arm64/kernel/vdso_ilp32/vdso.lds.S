@@ -12,8 +12,8 @@
 #include <asm/page.h>
 #include <asm/vdso.h>
 
-OUTPUT_FORMAT("elf64-littleaarch64", "elf64-bigaarch64", "elf64-littleaarch64")
-OUTPUT_ARCH(aarch64)
+OUTPUT_FORMAT("elf32-littleaarch64", "elf32-bigaarch64", "elf32-littleaarch64")
+OUTPUT_ARCH(aarch64:ilp32)
 
 SECTIONS
 {
@@ -84,4 +84,4 @@ VERSION
 /*
  * Make the sigreturn code visible to the kernel.
  */
-VDSO_sigtramp		= __kernel_rt_sigreturn;
+VDSO_sigtramp_ilp32	= __kernel_rt_sigreturn;
