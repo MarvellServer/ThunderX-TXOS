@@ -1283,6 +1283,15 @@ endif
 
 endif
 
+config ARM64_ILP32
+	bool "Kernel support for ILP32"
+	select COMPAT
+	default y
+	help
+	  This option enables support for AArch64 ILP32 user space.  ILP32
+	  is an ABI where long and pointers are 32bits but it uses the AARCH64
+	  instruction set.
+
 menu "ARMv8.1 architectural features"
 
 config ARM64_HW_AFDBM
