@@ -255,8 +255,21 @@ config ARCH_THUNDER2
 	bool "Cavium ThunderX2 Server Processors"
 	select GPIOLIB
 	help
-	  This enables support for Cavium's ThunderX2 CN99XX family of
+	  This enables support for Cavium's ThunderX2 CN11K family of
 	  server processors.
+
+config ARCH_THUNDER3
+	bool "Marvell ThunderX3 Server Processors"
+	select GPIOLIB
+	help
+	  This enables support for Marvell's ThunderX3 CN11K family of
+	  server processors.
+
+config ARCH_PALLADIUM
+	bool "Palladium emulator"
+	default n
+	help
+	  This enables pci vulcan hacks required for Palladium boot.
 
 config ARCH_UNIPHIER
 	bool "Socionext UniPhier SoC Family"

@@ -74,6 +74,17 @@ int pci_host_common_probe(struct platform_device *pdev,
 	if (IS_ERR(cfg))
 		return PTR_ERR(cfg);
 
+#if defined(CONFIG_ARCH_PALLADIUM) && defined(CONFIG_PCI)
+	{
+		extern int vulcan_pci_init(void *pci, struct pci_ops *pops);
+		int err = vulcan_pci_init(cfg, &ops->pci_ops);
+		if (err) {
+			dev_err(dev, "vulcan rc not enabled");
+			return -ENODEV;
+		}
+	}
+#endif
+
 	/* Do not reassign resources if probe only */
 	if (!pci_has_flag(PCI_PROBE_ONLY))
 		pci_add_flags(PCI_REASSIGN_ALL_BUS);
