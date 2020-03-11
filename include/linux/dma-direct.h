@@ -8,6 +8,8 @@
 
 static inline dma_addr_t phys_to_dma(struct device *dev, phys_addr_t paddr);
 
+extern unsigned int zone_dma_bits;
+
 #ifdef CONFIG_ARCH_HAS_PHYS_TO_DMA
 #include <asm/dma-direct.h>
 #else
