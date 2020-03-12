@@ -4,6 +4,7 @@
  */
 #ifdef CONFIG_COMPAT
 #define __ARCH_WANT_COMPAT_STAT64
+#define __ARCH_WANT_SYS_LLSEEK		// FIXME: Only for ilp32???
 #define __ARCH_WANT_SYS_GETHOSTNAME
 #define __ARCH_WANT_SYS_PAUSE
 #define __ARCH_WANT_SYS_GETPGRP

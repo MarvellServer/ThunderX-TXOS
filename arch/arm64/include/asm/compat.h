@@ -214,4 +214,37 @@ static inline int is_compat_thread(struct thread_info *thread)
 }
 
 #endif /* CONFIG_COMPAT */
+
+static inline int is_ilp32_task(void)
+{
+#if defined(CONFIG_ARM64_ILP32)
+	return test_thread_flag(TIF_ILP32);
+#else
+	return 0;
+#endif
+}
+
+static inline int is_ilp32_thread(struct thread_info *thread)
+{
+#if defined(CONFIG_ARM64_ILP32)
+	return test_ti_thread_flag(thread, TIF_ILP32);
+#else
+	return 0;
+#endif
+}
+
+static inline int is_32bit_task(void)
+{
+#if defined(CONFIG_COMPAT)
+	return is_compat_task() || is_ilp32_task();
+#else
+	return is_ilp32_task();
+#endif
+}
+
+static inline int is_32bit_thread(struct thread_info *thread)
+{
+	return is_compat_thread(thread) || is_ilp32_thread(thread);
+}
+
 #endif /* __ASM_COMPAT_H */
