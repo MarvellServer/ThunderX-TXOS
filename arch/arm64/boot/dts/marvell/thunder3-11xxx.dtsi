@@ -98,6 +98,19 @@
 		clock-output-names = "clk125mhz";
 	};
 
+	smmu0: smmu@402300000 {
+		compatible = "arm,smmu-v3";
+		cavium,cn9900-broken-page1-regspace;
+		reg = <0x4 0x02300000 0x0 0x10000>;
+
+		interrupts = <GIC_SPI 106 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "combined";
+
+		interrupt-shared = <1>;
+		dma-coherent;
+		#iommu-cells = <1>;
+	};
+
 	pcie@30000000 {
 		compatible = "pci-host-ecam-generic";
 		device_type = "pci";
@@ -128,6 +141,7 @@
 			 0 0 0  4  &gic   0 0    GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>;
 		msi-parent = <&gicits>;
 		dma-coherent;
+		iommu-map = <0x100 &smmu0 0x100 0x700>;
 	};
 
 	pcie@38000000 {
