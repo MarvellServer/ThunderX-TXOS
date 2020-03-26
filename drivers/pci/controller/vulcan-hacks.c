@@ -17,10 +17,12 @@ static int maxnode;
 
 struct vulcan_node_pci {
 	bool USB;
+	bool SATA;
 	bool PCIE;
-	bool PCISB;
-	bool LPBK;
-	bool XLPBK;
+	bool PCISB0;
+	bool PCISB1;
+	bool PCISB2;
+	bool PCISB3;
 	unsigned int nd_bus;
 	void *pci;
 	DECLARE_BITMAP(rcbus_map, 256);
@@ -28,8 +30,8 @@ struct vulcan_node_pci {
 };
 
 static struct vulcan_node_pci ndata[2] = {
-	{false, false, false, false, false, 0x0},
-	{false, false, false, false, false, 0x80},
+	{false, false, false, false, false, false, false, 0x0},
+	{false, false, false, false, false, false, false, 0x80},
 };
 
 static inline int bus_to_node(unsigned int bus)
@@ -65,7 +67,9 @@ static bool vulcan_whitelist(unsigned int busn, unsigned int devfn)
 
 	if (busn == n->nd_bus && devfn == 0)
 		return true;
-	if (busn == n->nd_bus && n->USB && (devfn == 0x80 || devfn == 0x78))
+	if (busn == n->nd_bus && n->SATA && (devfn == 0x90 || devfn == 0x91))
+		return true;
+	if (busn == n->nd_bus && n->USB && (devfn == 0x88 || devfn == 0x89))
 		return true;
 	if (busn == n->nd_bus && n->PCIE && test_bit(d, n->rcbus_map))
 		return true;
@@ -90,6 +94,7 @@ static int vulcan_pcie_read_config(struct pci_bus *bus, unsigned int devfn,
 	}
 
 	addr = vulcan_pci_config_base(n->pci, busn, devfn, roff);
+
 
 	if (DBG) pr_info("%x:%x [%x] =>\n", busn, devfn, offset);
 	*val = readl(addr);
@@ -169,20 +174,26 @@ static void vulcan_pcie_setup_mps(int b, int d, int f)
 
 	pr_info("%02x:%02x:%02x setup mps\n", b, d, f);
 	q = vulcan_pci_config_base(n->pci, b, PCI_DEVFN(d, f), 0);
+	pr_info("q: %08x\n", q);
 	val = readl(q);
+	pr_info("val: %08x\n", val);
 	if (val == 0xffffffffu) {
 		pr_info("%x:%x:%x: no device!\n", b, d, f);
 		return;
 	}
 	off = vulcan_get_pci_cap(q, 0x10);
+	pr_info("off: %08x\n", off);
 	if (off == 0) {
 		pr_err("no pci cap on %x:%x:%x\n", b, d, f);
 		return;
 	}
 	q += off;
+	pr_info("q: %08x\n", q);
 
 	devcap = readl(q + 4);
+	pr_info("devcap addr: %08x, Data: %08x\n", q+4, devcap);
 	devctrl = readl(q + 8);
+	pr_info("devctrlp addr: %08x, Data: %08x\n", q+8, devctrl);
 	pr_info("PCIe cap %02x %08x %08x, mps = %d max = %d "
 		"mrrs = %d max = %d\n", off, devcap, devctrl,
 		(devctrl >> 5) & 0x7, devcap & 0x07,
@@ -190,15 +201,19 @@ static void vulcan_pcie_setup_mps(int b, int d, int f)
 	devctrl &= ~(0x7 << 5);
 	devctrl &= ~(0x7 << 12);
 	writel(devctrl, q + 8);
+	pr_info("WRITE devctrlp addr: %08x, Data: %08x\n", q+8, devctrl);
 	devctrl = readl(q + 8);
+	pr_info("READ devctrlp addr: %08x, Data: %08x\n", q+8, devctrl);
 	pr_info("PCIe after at %02x %08x, mps = %d mrs = %d\n",
 		off, devctrl, (devctrl >> 5) & 0x7,
 		(devctrl >> 12) & 0x7);
 
 	devctrl2 = readl(q + 0x28);
+	pr_info("devctrl2 addr: %08x, Data: %08x\n", q+0x28, devctrl2);
 	pr_info("PCIe DEV_CTRL2 %08x", devctrl2);
 	devctrl2 |= (1 << 4); /* Completion Timeout Disabled */
 	writel(devctrl2, q + 0x28);
+	pr_info("WRITE devctrl2 addr: %08x, Data: %08x\n", q+0x28, devctrl2);
 	devctrl2 = readl(q + 0x28);
 	pr_info(" -> %08x (Completion Timeout %sabled)\n", devctrl2,
 		((devctrl2 >> 4) & 1) ? "Dis" : "En");
@@ -279,9 +294,9 @@ static int vulcan_pcie_setup_msi(int b, int rc, int f)
 		pr_info("0x8000: %08x\n", readl(p + 0x8000));
 	}
 
-	writel(0x00100000, p + 0x8b00); /* msi base lo */
+	writel(0x03020000, p + 0x8b00); /* msi base lo */
 	writel(0x00000004, p + 0x8b40); /* msi base hi */
-	writel(0x00200000, p + 0x8b80); /* msi limit lo */
+	writel(0x03120000, p + 0x8b80); /* msi limit lo */
 	writel(0x00000004, p + 0x8bc0); /* msi limit hi */
 
 	pr_info("0x8b00: %08x %08x %08x %08x\n",
@@ -290,12 +305,14 @@ static int vulcan_pcie_setup_msi(int b, int rc, int f)
 	iounmap(p);
 
 	/* Disable SMMU */
-	p = ioremap(smmubase + n * 0x40000000, 0x10000);
+	/* rajkumar
+        p = ioremap(smmubase + n * 0x40000000, 0x10000);
 	pr_info("Mapped SMMU %lx to %p\n", smmubase, p);
 	val = readl(p + 0x1040);
 	writel(0x400, p + 0x1040);
 	pr_info("smmu:1040 %08x -> %08x\n", val, readl(p + 0x1040));
 	iounmap(p);
+        */
 
 	return 0;
 }
@@ -359,22 +376,26 @@ static void vulcan_config_node(int iomask, int node)
 	u8 __iomem *p;
 	u32 conf;
 	struct vulcan_node_pci *n = &ndata[node];
-	unsigned long cmupa = 0x400040000ul + (node << 30);
+	unsigned long cmupa = 0x401000000ul + (node << 30);
 
 	if (iomask & 0x1)
 		n->PCIE = true;
 	if (iomask & 0x2)
-		n->PCISB = true;
+		n->PCISB0 = true;
 	if (iomask & 0x4)
-		n->LPBK = true;
+		n->PCISB1 = true;
 	if (iomask & 0x8)
-		n->XLPBK = true;
+		n->PCISB2 = true;
 	if (iomask & 0x10)
+		n->PCISB3 = true;
+	if (iomask & 0x20)
 		n->USB = true;
+	if (iomask & 0x40)
+		n->SATA = true;
 
-	pr_info("\t node %d: IO mask %cUSB %c%cLPBK %cPCISB %cPCIe\n", node,
-		(n->USB?'+':'-'), (n->XLPBK?'+':'-'), (n->LPBK?'+':'-'),
-		(n->PCISB?'+':'-'), (n->PCIE?'+':'-'));
+	pr_info("\t node %d: IO mask %cSATA %cUSB %cPCISB3 %cPCISB2 %cPCISB1 %cPCISB0 %cPCIe\n", node,
+		(n->SATA?'+':'-'), (n->USB?'+':'-'), (n->PCISB3?'+':'-'),
+		(n->PCISB2?'+':'-'), (n->PCISB1?'+':'-'), (n->PCISB0?'+':'-'), (n->PCIE?'+':'-'));
 
 	p = ioremap(cmupa, 0x10000);
 	if (p == NULL)  {
@@ -416,36 +437,38 @@ static void vulcan_init_node(int iomask, int node)
 	struct vulcan_node_pci *n = &ndata[node];
 
 	p = vulcan_pci_config_base(n->pci, n->nd_bus, 0, 0);
-	pr_info("CMU [%d:0.0] : %08x %08x", n->nd_bus, readl(p), iomask);
+	pr_info("CMU [%d:0.0] : %08x %08x %08x", n->nd_bus, readl(p), iomask, p);
 	conf = readl(p + 0x4);
 	pr_info("CMU config [%d] : cmd %08x", node, conf);
 	writel(conf | 0x6, p + 0x4);
 	pr_info("CMU config [%d] : cmd %08x", node, readl(p + 0x4));
 
 	if (n->PCIE) {
-		if (n->PCISB)
-			vulcan_setup_rc(node, 1, 0x02, 0x07, 3);
-		else
+		if (n->PCISB0) {
+	                pr_info("Controller-0 rc setup. bus=0, dev=1, sec_bus=1, sub_bus=8\n");
+			vulcan_setup_rc(node, 1, 0x1, 0x8, 3);
+		} else
 			vulcan_setup_rc(node, 1, 0, 0, 0);
-		if (n->LPBK)
-			vulcan_setup_rc(node, 2, 0x08, 0x0f, 1);
-		else
-			vulcan_setup_rc(node, 2, 0, 0, 0);
-		vulcan_setup_rc(node, 3, 00, 0, 0);
-		if (n->LPBK)
-			vulcan_setup_rc(node, 4, 0x18, 0x27, 1);
-		else
-			vulcan_setup_rc(node, 4, 0, 0,  0);
-
-		if (n->XLPBK) {
-			vulcan_setup_rc(node, 5, 0x28, 0, 1);
-			vulcan_setup_rc(node, 5, 0x38, 0, 1);
-			vulcan_setup_rc(node, 5, 0x48, 0, 1);
-			vulcan_setup_rc(node, 5, 0x58, 0, 1);
-		}
+		if (n->PCISB1) {
+	                pr_info("Controller-1 rc setup. bus=0, dev=5, sec_bus=9, sub_bus=16\n");
+			vulcan_setup_rc(node, 5, 0x9, 0x10, 3);
+		} else
+			vulcan_setup_rc(node, 5, 0, 0, 0);
+		if (n->PCISB2) {
+	                pr_info("Controller-2 rc setup. bus=0, dev=9, sec_bus=17, sub_bus=24\n");
+			vulcan_setup_rc(node, 9, 0x11, 0x18, 3);
+		} else
+			vulcan_setup_rc(node, 9, 0, 0, 0);
+		if (n->PCISB3) {
+	                pr_info("Controller-3 rc setup. bus=0, dev=13, sec_bus=25, sub_bus=32\n");
+			vulcan_setup_rc(node, 13, 0x19, 0x20, 3);
+		} else
+			vulcan_setup_rc(node, 13, 0, 0, 0);
 	}
 	if (n->USB) {
-		q = vulcan_pci_config_base(n->pci, n->nd_bus, PCI_DEVFN(0xf, 0), 0);
+		//tx2 q = vulcan_pci_config_base(n->pci, n->nd_bus, PCI_DEVFN(0xf, 0), 0);
+		q = vulcan_pci_config_base(n->pci, n->nd_bus, PCI_DEVFN(0x11, 0), 0);
+		pr_info("RAJ: USB 0.17.0 config base %x\n", q);
 		val = readl(q + 0x18);
 		v1 = readl(q + 0x1c);
 		pr_info("BAR 2/3: %08x %08x\n", val, v1);
@@ -453,12 +476,14 @@ static void vulcan_init_node(int iomask, int node)
 		v1 = readl(q + 0x24);
 		pr_info("BAR 4/5: %08x %08x\n", val, v1);
 		if (!FWF) {
+		        pr_info("USB 0:17:0 cmd write\n");
 			writel(0x0404, q + 0x4);	/* cmd enable, int disable */
 			writel(0x0151, q+ 0x3c);
 		}
-		pr_info("USB 0:f:0 cmd %x\n", readl(q + 0x4));
+		pr_info("USB 0:16:0 cmd %x\n", readl(q + 0x4));
 
-		q = vulcan_pci_config_base(n->pci, n->nd_bus, PCI_DEVFN(0xf, 1), 0);
+		q = vulcan_pci_config_base(n->pci, n->nd_bus, PCI_DEVFN(0x11, 1), 0);
+		pr_info("RAJ: USB 0.17.1 config base %x\n", q);
 		val = readl(q + 0x18);
 		v1 = readl(q + 0x1c);
 		pr_info("BAR 2/3: %08x %08x\n", val, v1);
@@ -466,12 +491,16 @@ static void vulcan_init_node(int iomask, int node)
 		v1 = readl(q + 0x24);
 		pr_info("BAR 4/5: %08x %08x\n", val, v1);
 		if (!FWF) {
+		        pr_info("USB 0:17:1 cmd write\n");
 			writel(0x0404, q + 0x4);	/* cmd enable, int disable */
 			writel(0x0152, q+ 0x3c);
 		}
-		pr_info("USB 0:f:1 cmd %x\n", readl(q + 0x4));
-
-		q = vulcan_pci_config_base(n->pci, n->nd_bus, PCI_DEVFN(0x10, 0), 0);
+		pr_info("USB 0:17:1 cmd %x\n", readl(q + 0x4));
+		pr_info("USB Config done\n");
+        }
+	if (n->SATA) {
+		q = vulcan_pci_config_base(n->pci, n->nd_bus, PCI_DEVFN(0x12, 0), 0);
+		pr_info("RAJ: SATA 0.18.0 config base %x\n", q);
 		val = readl(q + 0x18);
 		v1 = readl(q + 0x1c);
 		pr_info("BAR 2/3: %08x %08x\n", val, v1);
@@ -479,12 +508,14 @@ static void vulcan_init_node(int iomask, int node)
 		v1 = readl(q + 0x24);
 		pr_info("BAR 4/5: %08x %08x\n", val, v1);
 		if (!FWF) {
+		        pr_info("SATA 0:18:0 cmd write\n");
 			writel(0x0404, q + 0x4);	/* cmd enable, int disable */
 			writel(0x0151, q+ 0x3c);
 		}
-		pr_info("SATA 0:10:0 cmd %x\n", readl(q + 0x4));
+		pr_info("SATA 0:18:0 cmd read1%x\n", readl(q + 0x4));
 
-		q = vulcan_pci_config_base(n->pci, n->nd_bus, PCI_DEVFN(0x10, 1), 0);
+		q = vulcan_pci_config_base(n->pci, n->nd_bus, PCI_DEVFN(0x12, 1), 0);
+		pr_info("RAJ: SATA 0.18.1 config base %x\n", q);
 		val = readl(q + 0x18);
 		v1 = readl(q + 0x1c);
 		pr_info("BAR 2/3: %08x %08x\n", val, v1);
@@ -492,12 +523,14 @@ static void vulcan_init_node(int iomask, int node)
 		v1 = readl(q + 0x24);
 		pr_info("BAR 4/5: %08x %08x\n", val, v1);
 		if (!FWF) {
+		        pr_info("SATA 0:18:1 cmd write\n");
 			writel(0x0404, q + 0x4);	/* cmd enable, int disable */
 			writel(0x0152, q+ 0x3c);
 		}
-		pr_info("SATA 0:10:1 cmd %x\n", readl(q + 0x4));
+		pr_info("SATA 0:18:1 cmd %x\n", readl(q + 0x4));
+		pr_info("SATA Config done\n");
 	}
-	if (n->PCIE && n->PCISB) {
+	if (n->PCIE && n->PCISB0) {
 		unsigned int ep;
 
 		vulcan_pcie_setup_msi(n->nd_bus, 1, 0);
@@ -507,7 +540,51 @@ static void vulcan_init_node(int iomask, int node)
 		ep = (val >> 8) & 0xff;
 
 		vulcan_pcie_setup_mps(n->nd_bus, 1, 0);
+		pr_info("MPS setup for ep %x\n", ep);
 		vulcan_pcie_setup_mps(ep, 0, 0);
+		pr_info("MPS setup done\n");
+	}
+        if (n->PCIE && n->PCISB1) {
+                unsigned int ep;
+
+                vulcan_pcie_setup_msi(n->nd_bus, 5, 0);
+
+                q = vulcan_pci_config_base(n->pci, n->nd_bus, PCI_DEVFN(5, 0), 0);
+                val  = readl(q + 0x18);
+                ep = (val >> 8) & 0xff;
+
+                vulcan_pcie_setup_mps(n->nd_bus, 5, 0);
+                pr_info("MPS setup for ep %x\n", ep);
+                vulcan_pcie_setup_mps(ep, 0, 0);
+                pr_info("MPS setup done\n");
+        }
+        if (n->PCIE && n->PCISB2) {
+                unsigned int ep;
+
+                vulcan_pcie_setup_msi(n->nd_bus, 9, 0);
+
+                q = vulcan_pci_config_base(n->pci, n->nd_bus, PCI_DEVFN(9, 0), 0);
+                val  = readl(q + 0x18);
+                ep = (val >> 8) & 0xff;
+
+                vulcan_pcie_setup_mps(n->nd_bus, 9, 0);
+                pr_info("MPS setup for ep %x\n", ep);
+                vulcan_pcie_setup_mps(ep, 0, 0);
+                pr_info("MPS setup done\n");
+        }
+	if (n->PCIE && n->PCISB3) {
+		unsigned int ep;
+
+		vulcan_pcie_setup_msi(n->nd_bus, 13, 0);
+
+		q = vulcan_pci_config_base(n->pci, n->nd_bus, PCI_DEVFN(13, 0), 0);
+		val  = readl(q + 0x18);
+		ep = (val >> 8) & 0xff;
+
+		vulcan_pcie_setup_mps(n->nd_bus, 13, 0);
+		pr_info("MPS setup for ep %x\n", ep);
+		vulcan_pcie_setup_mps(ep, 0, 0);
+		pr_info("MPS setup done\n");
 	}
 }
 
@@ -527,11 +604,12 @@ int vulcan_pci_init(void *pci, struct pci_ops *pops)
 
 	ndata[node].pci = pci;
 
-	/* Vulcan host-like bridge */
 	pr_info("Vulcan PCI setup!\n");
+#if 1
+	/* Vulcan host-like bridge */
 	pops->read = vulcan_pcie_read_config;
 	pops->write = vulcan_pcie_write_config;
-
+#endif
 
 	if (node == 0)
 		vulcan_init_node(vulcan_iomask & 0xff, 0);
