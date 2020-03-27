@@ -9,6 +9,7 @@
 
 #include <linux/acpi.h>
 #include <linux/bitfield.h>
+#include <linux/context_tracking.h>
 #include <linux/extable.h>
 #include <linux/signal.h>
 #include <linux/mm.h>
@@ -386,6 +387,251 @@ static void set_thread_esr(unsigned long address, unsigned int esr)
 	current->thread.fault_code = esr;
 }
 
+#undef DEBUG_EMULATION
+
+static int emulate_load_store(struct pt_regs *regs, unsigned long addr, u64 *pc)
+{
+	unsigned int instruction;
+	unsigned int Rt;
+	unsigned int Rn;
+	unsigned int Rt2;
+	unsigned int opc, type;
+	unsigned int datasize;
+	unsigned int wb,postindex;
+	int imm7;
+	u64 Rt_val, Rt2_val, Rn_val, i;
+	char *p = (void __user *)addr;
+	unsigned long mod_back;
+	unsigned long mod_back_val_t;
+	unsigned long mod_back_val[3];
+	unsigned long mod_back_addr;
+	unsigned long mask = 0;
+
+	__get_user(instruction, pc);
+#ifdef DEBUG_EMULATION
+	printk("instruction = 0x%x @ %llx addr = %lx\n", instruction, pc, addr);
+#endif
+	type = (instruction >> 24) & 0xFF;
+	if (type == 0xa9) { /* STP Unsigned */
+		Rt = instruction & 0x1F;
+		Rn = (instruction >> 5) & 0x1F;
+		Rt2 = (instruction >> 10) & 0x1F;
+		imm7 = (instruction >> 15) & 0x7F;
+		opc = (instruction >> 31) & 0x1;
+		datasize =  8 << (opc + 2);
+		if ((instruction >> 23 & 0x3) == 0x1) {
+			wb =true;
+			postindex =true;
+		} else if ((instruction >> 23 & 0x3) == 0x3) {
+			wb =true;
+			postindex =false;
+		} else if ((instruction >> 23 & 0x3) == 0x2) {
+			wb =true;
+			postindex =false;
+		}
+		Rt_val = regs->user_regs.regs[Rt];
+		Rt2_val = regs->user_regs.regs[Rt2];
+		Rn_val = regs->user_regs.regs[Rn];
+#ifdef DEBUG_EMULATION
+		printk("Rn_val = %lx addr = %lx imm7 = %x \n", Rn_val, addr, imm7);
+#endif
+		mod_back = addr % 8;
+		mod_back_addr = addr - mod_back;
+#ifdef DEBUG_EMULATION
+		printk("mod_back = %lx mod_back_addr = %lx\n", mod_back, mod_back_addr);
+#endif
+		for (i = 0; i < 3; i++,mod_back_addr+=8) {
+			__get_user(mod_back_val_t, (u64 *)mod_back_addr);
+			mod_back_val[i] = mod_back_val_t;
+#ifdef DEBUG_EMULATION
+			printk("mod_back_addr = %lx val @ mod_back_val = %lx\n", mod_back_addr, mod_back_val[i]);
+#endif
+		}
+		mod_back_addr = addr - mod_back;
+		for (i = 0, mask =0; i < mod_back; i++)
+			mask |= (0xFFUL << (i * 8));
+		mod_back_val[0] = mod_back_val[0] & mask;
+		mod_back_val[0] = mod_back_val[0] | ((Rt_val  &  mask ) << ((8 - mod_back) * 8));
+		mod_back_val[1] = Rt_val >> ((8 - mod_back) * 8);
+		mod_back_val[1] = mod_back_val[1] & mask;
+		mod_back_val[1] = mod_back_val[1] | ( (Rt2_val & mask ) << ((8 - mod_back) * 8));
+		mod_back_val[2] = mod_back_val[2] & ((mask << (( 8 - mod_back) * 8)));
+		mod_back_val[2] = mod_back_val[2] |  (Rt2_val >> ((8 - mod_back) * 8));
+#ifdef DEBUG_EMULATION
+		printk("Rt_val = %lx Rt2_val = %lx \n", Rt_val, Rt2_val);
+#endif
+
+		for (i = 0; i < 3; i++,mod_back_addr+=8) {
+			__put_user(mod_back_val[i], (u64 *)mod_back_addr);
+		}
+		mod_back_addr = addr - mod_back;
+		for (i = 0; i < 3; i++,mod_back_addr+=8) {
+			__get_user(mod_back_val_t, (u64 *)mod_back_addr);
+			mod_back_val[i] = mod_back_val_t;
+#ifdef DEBUG_EMULATION
+			printk("mod_back_addr = %lx val @ mod_back_val = %lx\n", mod_back_addr, mod_back_val[i]);
+#endif
+		}
+		if (wb)
+			regs->user_regs.regs[Rn] = (u64)p;
+	} else if (type == 0xf9) { /* STR unsigned*/
+		Rt = instruction & 0x1F;
+		Rn = (instruction >> 5) & 0x1F;
+		imm7 = (instruction >> 10) & 0xFFF;
+		opc = (instruction >> 30) & 0x1;
+		datasize =  8 << (opc + 2);
+		Rt_val = regs->user_regs.regs[Rt];
+		mod_back = addr % 8;
+		mod_back_addr = addr - mod_back;
+#ifdef DEBUG_EMULATION
+		printk("mod_back = %lx mod_back_addr = %lx\n", mod_back, mod_back_addr);
+#endif
+		for (i = 0; i < 2; i++,mod_back_addr+=8) {
+			__get_user(mod_back_val_t, (u64 *)mod_back_addr);
+			mod_back_val[i] = mod_back_val_t;
+#ifdef DEBUG_EMULATION
+			printk("mod_back_addr = %lx val @ mod_back_val = %lx\n", mod_back_addr, mod_back_val[i]);
+#endif
+		}
+		mod_back_addr = addr - mod_back;
+		for (i = 0, mask =0; i < mod_back; i++)
+			mask |= (0xFFUL << (i * 8));
+		mod_back_val[0] = mod_back_val[0] & mask;
+		mod_back_val[0] = mod_back_val[0] | ((Rt_val  &  mask ) << ((8 - mod_back) * 8));
+#ifdef DEBUG_EMULATION
+		printk(" mod_back_val [0]= %lx\n", mod_back_val[0]);
+#endif
+		mod_back_val[1] = mod_back_val[1] & (mask << (( 8 - mod_back) * 8));
+		mod_back_val[1] = mod_back_val[1] | (Rt_val >> ((8 - mod_back) * 8));
+
+		for (i = 0; i < 2; i++,mod_back_addr+=8) {
+			__put_user(mod_back_val[i], (u64 *)mod_back_addr);
+		}
+#ifdef DEBUG_EMULATION
+		printk("Rt_val = %lx \n", Rt_val);
+#endif
+		mod_back_addr = addr - mod_back;
+		for (i = 0; i < 2; i++,mod_back_addr+=8) {
+			__get_user(mod_back_val_t, (u64 *)mod_back_addr);
+			mod_back_val[i] = mod_back_val_t;
+#ifdef DEBUG_EMULATION
+			printk("mod_back_addr = %lx val @ mod_back_val = %lx\n", mod_back_addr, mod_back_val[i]);
+#endif
+		}
+	} else if (type == 0xf8) { /* STUR 64 bit*/
+		Rt = instruction & 0x1F;
+		Rn = (instruction >> 5) & 0x1F;
+		imm7 = (instruction >> 12) & 0x1FF;
+		datasize =  8 << ((instruction >> 30) & 0x3);
+		Rt_val = regs->user_regs.regs[Rt];
+		mod_back = addr % 8;
+		mod_back_addr = addr - mod_back;
+#ifdef DEBUG_EMULATION
+		printk("mod_back = %lx mod_back_addr = %lx\n", mod_back, mod_back_addr);
+#endif
+		for (i = 0; i < 3; i++,mod_back_addr+=8) {
+			__get_user(mod_back_val_t, (u64 *)mod_back_addr);
+			mod_back_val[i] = mod_back_val_t;
+#ifdef DEBUG_EMULATION
+			printk("mod_back_addr = %lx val @ mod_back_val = %lx\n", mod_back_addr, mod_back_val[i]);
+#endif
+		}
+		mod_back_addr = addr - mod_back;
+		for (i = 0; i < mod_back; i++)
+			mask |= (0xFFUL << (i * 8));
+		mod_back_val[0] = mod_back_val[0] & mask;
+		mod_back_val[0] = mod_back_val[0] | ( (Rt_val  &  mask ) << ((8 - mod_back) * 8));
+		mod_back_val[1] = mod_back_val[1] & (mask << (( 8 - mod_back) * 8));
+		mod_back_val[1] = mod_back_val[1] | (Rt_val >> ((8 - mod_back) * 8));
+
+		for (i = 0; i < 2; i++,mod_back_addr+=8) {
+			__put_user(mod_back_val[i], (u64 *)mod_back_addr);
+		}
+		mod_back_addr = addr - mod_back;
+#ifdef DEBUG_EMULATION
+		printk("Rt_val = %lx \n", Rt_val);
+#endif
+		for (i = 0; i < 2; i++,mod_back_addr+=8) {
+			__get_user(mod_back_val_t, (u64 *)mod_back_addr);
+			mod_back_val[i] = mod_back_val_t;
+#ifdef DEBUG_EMULATION
+			printk("mod_back_addr = %lx val @ mod_back_val = %lx\n", mod_back_addr, mod_back_val[i]);
+#endif
+		}
+	} else if (type == 0xb8) { /* STUR 32 bit */
+		Rt = instruction & 0x1F;
+		Rn = (instruction >> 5) & 0x1F;
+		imm7 = (instruction >> 12) & 0x1FF;
+		datasize =  8 << ((instruction >> 30) & 0x3);
+		Rt_val = regs->user_regs.regs[Rt];
+		mod_back = addr % 8;
+		mod_back_addr = addr - mod_back;
+#ifdef DEBUG_EMULATION
+		printk("mod_back = %lx mod_back_addr = %lx\n", mod_back, mod_back_addr);
+#endif
+		for (i = 0; i < 3; i++,mod_back_addr+=8) {
+			__get_user(mod_back_val_t, (u64 *)mod_back_addr);
+			mod_back_val[i] = mod_back_val_t;
+#ifdef DEBUG_EMULATION
+			//printk("mod_back_addr = %lx val @ mod_back_val = %lx\n", mod_back_addr, mod_back_val[i]);
+#endif
+		}
+		mod_back_addr = addr - mod_back;
+		for (i = 0; i < mod_back; i++)
+			mask |= (0xFFUL << (i * 8));
+		mod_back_val[0] = mod_back_val[0] & mask;
+		mod_back_val[0] = mod_back_val[0] |  ((Rt_val  &  mask ) << ((8 - mod_back) * 8));
+		mod_back_val[1] = mod_back_val[1] & (mask << (( 8 - mod_back) * 8));
+		mod_back_val[1] = mod_back_val[1] | (Rt_val >> ((8 - mod_back) * 8));
+
+		for (i = 0; i < 2; i++,mod_back_addr+=8) {
+			__put_user(mod_back_val[i], (u64 *)mod_back_addr);
+		}
+		mod_back_addr = addr - mod_back;
+#ifdef DEBUG_EMULATION
+		printk("Rt_val = %lx \n", Rt_val);
+#endif
+		for (i = 0; i < 2; i++,mod_back_addr+=8) {
+			__get_user(mod_back_val_t, (u64 *)mod_back_addr);
+			mod_back_val[i] = mod_back_val_t;
+#ifdef DEBUG_EMULATION
+			printk("mod_back_addr = %lx val @ mod_back_val = %lx\n", mod_back_addr, mod_back_val[i]);
+#endif
+		}
+	} else {
+		printk("Un emulated yet %x\n",type);
+		printk("instruction = 0x%x @ %p addr = %lx\n",
+			instruction, pc, addr);
+	}
+	return 0;
+}
+
+static void handle_unaligned_access(unsigned long addr, unsigned int esr, struct pt_regs *regs)
+{
+	enum ctx_state prev_state;
+	const struct fault_info *inf = esr_to_fault_info(esr);
+	mm_segment_t seg;
+	u64 * pc = (u64 *)regs->user_regs.pc;
+	int ret;
+
+	prev_state = exception_enter();
+	seg = get_fs();
+	if (!user_mode(regs))
+		set_fs(KERNEL_DS);
+	ret = emulate_load_store(regs, addr, (u64 *)pc);
+		if (ret)
+			goto fail;
+	regs->user_regs.pc += 4;
+	set_fs(seg);
+	exception_exit(prev_state);
+	return;
+
+fail:
+
+	set_thread_esr(addr, esr);
+	arm64_force_sig_fault(inf->sig, inf->code, (void __user *)addr,
+			      inf->name);
+}
 static void do_bad_area(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 {
 	/*
@@ -393,11 +639,7 @@ static void do_bad_area(unsigned long addr, unsigned int esr, struct pt_regs *re
 	 * handle this fault with.
 	 */
 	if (user_mode(regs)) {
-		const struct fault_info *inf = esr_to_fault_info(esr);
-
-		set_thread_esr(addr, esr);
-		arm64_force_sig_fault(inf->sig, inf->code, (void __user *)addr,
-				      inf->name);
+		handle_unaligned_access(addr, esr, regs);
 	} else {
 		__do_kernel_fault(addr, esr, regs);
 	}
