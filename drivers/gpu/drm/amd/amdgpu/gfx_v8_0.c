@@ -887,7 +887,7 @@ static int gfx_v8_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
 
 	gpu_addr = adev->wb.gpu_addr + (index * 4);
 	adev->wb.wb[index] = cpu_to_le32(0xCAFEDEAD);
-	memset(&ib, 0, sizeof(ib));
+	memset_io(&ib, 0, sizeof(ib));
 	r = amdgpu_ib_get(adev, NULL, 16, &ib);
 	if (r)
 		goto err1;
@@ -1382,7 +1382,7 @@ static int gfx_v8_0_mec_init(struct amdgpu_device *adev)
 		return r;
 	}
 
-	memset(hpd, 0, mec_hpd_size);
+	memset_io(hpd, 0, mec_hpd_size);
 
 	amdgpu_bo_kunmap(adev->gfx.mec.hpd_eop_obj);
 	amdgpu_bo_unreserve(adev->gfx.mec.hpd_eop_obj);
@@ -1578,7 +1578,7 @@ static int gfx_v8_0_do_edc_gpr_workarounds(struct amdgpu_device *adev)
 	total_size += sizeof(sgpr_init_compute_shader);
 
 	/* allocate an indirect buffer to put the commands in */
-	memset(&ib, 0, sizeof(ib));
+	memset_io(&ib, 0, sizeof(ib));
 	r = amdgpu_ib_get(adev, NULL, total_size, &ib);
 	if (r) {
 		DRM_ERROR("amdgpu: failed to get ib (%d).\n", r);
@@ -4656,7 +4656,7 @@ static int gfx_v8_0_kiq_init_queue(struct amdgpu_ring *ring)
 		vi_srbm_select(adev, 0, 0, 0, 0);
 		mutex_unlock(&adev->srbm_mutex);
 	} else {
-		memset((void *)mqd, 0, sizeof(struct vi_mqd_allocation));
+		memset_io((void *)mqd, 0, sizeof(struct vi_mqd_allocation));
 		((struct vi_mqd_allocation *)mqd)->dynamic_cu_mask = 0xFFFFFFFF;
 		((struct vi_mqd_allocation *)mqd)->dynamic_rb_mask = 0xFFFFFFFF;
 		mutex_lock(&adev->srbm_mutex);
@@ -4680,7 +4680,7 @@ static int gfx_v8_0_kcq_init_queue(struct amdgpu_ring *ring)
 	int mqd_idx = ring - &adev->gfx.compute_ring[0];
 
 	if (!adev->in_gpu_reset && !adev->in_suspend) {
-		memset((void *)mqd, 0, sizeof(struct vi_mqd_allocation));
+		memset_io((void *)mqd, 0, sizeof(struct vi_mqd_allocation));
 		((struct vi_mqd_allocation *)mqd)->dynamic_cu_mask = 0xFFFFFFFF;
 		((struct vi_mqd_allocation *)mqd)->dynamic_rb_mask = 0xFFFFFFFF;
 		mutex_lock(&adev->srbm_mutex);
@@ -7133,7 +7133,7 @@ static void gfx_v8_0_get_cu_info(struct amdgpu_device *adev)
 	unsigned disable_masks[4 * 2];
 	u32 ao_cu_num;
 
-	memset(cu_info, 0, sizeof(*cu_info));
+	memset_io(cu_info, 0, sizeof(*cu_info));
 
 	if (adev->flags & AMD_IS_APU)
 		ao_cu_num = 2;

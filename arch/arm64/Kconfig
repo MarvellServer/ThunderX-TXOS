@@ -267,6 +267,10 @@ config GENERIC_CSUM
 config GENERIC_CALIBRATE_DELAY
 	def_bool y
 
+config ZONE_DMA
+	bool "Support DMA zone" if EXPERT
+	default y
+
 config ZONE_DMA32
 	bool "Support DMA32 zone" if EXPERT
 	default y
@@ -1283,6 +1287,25 @@ config SETEND_EMULATION
 endif
 
 endif
+
+config ARM64_ILP32
+	bool "Kernel support for ILP32"
+	select COMPAT
+	select BINFMT_ARM64_ILP32 if BINFMT_ELF
+	select ARM64_ILP32_VDSO
+	default y
+	help
+	  This option enables support for AArch64 ILP32 user space.  ILP32
+	  is an ABI where long and pointers are 32bits but it uses the AARCH64
+	  instruction set.
+
+config ARM64_ILP32_VDSO
+	bool "VDSO support for ILP32"
+	depends on ARM64_ILP32
+	default y
+	help
+	  This option enables VDSO support for AArch64 ILP32.
+	  If unsure, say Y.
 
 menu "ARMv8.1 architectural features"
 

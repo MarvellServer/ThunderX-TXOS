@@ -32,6 +32,8 @@ obj-$(CONFIG_COMPAT)			+= sys32.o signal32.o			\
 ifneq ($(CONFIG_COMPAT_VDSO), y)
 obj-$(CONFIG_COMPAT)			+= sigreturn32.o
 endif
+obj-$(CONFIG_ARM64_ILP32)		+= sys_ilp32.o
+obj-$(CONFIG_ARM64_ILP32)		+= signal_ilp32.o
 obj-$(CONFIG_KUSER_HELPERS)		+= kuser32.o
 obj-$(CONFIG_FUNCTION_TRACER)		+= ftrace.o entry-ftrace.o
 obj-$(CONFIG_MODULES)			+= module.o
@@ -66,6 +68,7 @@ obj-$(CONFIG_ARM64_PTR_AUTH)		+= pointer_auth.o
 
 obj-y					+= vdso/ probes/
 obj-$(CONFIG_COMPAT_VDSO)		+= vdso32/
+obj-$(CONFIG_ARM64_ILP32_VDSO)		+= vdso_ilp32/
 head-y					:= head.o
 extra-y					+= $(head-y) vmlinux.lds
 
