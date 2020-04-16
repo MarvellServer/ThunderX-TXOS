@@ -11,3 +11,4 @@ dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-mcbin.dtb
 dtb-$(CONFIG_ARCH_MVEBU) += armada-8040-mcbin-singleshot.dtb
 dtb-$(CONFIG_ARCH_MVEBU) += armada-8080-db.dtb
 dtb-$(CONFIG_ARCH_THUNDER3) += thunder3-11xxx.dtb
+dtb-$(CONFIG_ARCH_THUNDER3) += thunder3-11xxx-2s.dtb
