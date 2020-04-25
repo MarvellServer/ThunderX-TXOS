@@ -294,9 +294,9 @@ static int vulcan_pcie_setup_msi(int b, int rc, int f)
 		pr_info("0x8000: %08x\n", readl(p + 0x8000));
 	}
 
-	writel(0x03020000, p + 0x8b00); /* msi base lo */
+	writel(0x03020000 + (1u << 30) * n, p + 0x8b00); /* msi base lo */
 	writel(0x00000004, p + 0x8b40); /* msi base hi */
-	writel(0x03120000, p + 0x8b80); /* msi limit lo */
+	writel(0x03120000 + (1u << 30) * n, p + 0x8b80); /* msi limit lo */
 	writel(0x00000004, p + 0x8bc0); /* msi limit hi */
 
 	pr_info("0x8b00: %08x %08x %08x %08x\n",

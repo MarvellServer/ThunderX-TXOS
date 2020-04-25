@@ -13,7 +13,7 @@
 
 /dts-v1/;
 
-#include "thunder3-11xxx.dtsi"
+#include "thunder3-11xxx-2s.dtsi"
 
 / {
 	model = "Marvell ThunderX3 CN11XXX";
@@ -27,6 +27,12 @@
 		numa-node-id = <0>;
 	};
 
+	memory@1 {
+		device_type = "memory";
+		reg = <0x00000088 0x80000000 0x7 0x00000000>;  /* 28G @ 546G */
+		/* node 1 */
+		numa-node-id = <1>;
+	};
 	aliases {
 		serial0 = &uart0;
 	};
