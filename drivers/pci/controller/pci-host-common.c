@@ -82,12 +82,13 @@ int pci_host_common_probe(struct platform_device *pdev,
 			dev_err(dev, "vulcan rc not enabled");
 			return -ENODEV;
 		}
+		pci_add_flags(PCI_REASSIGN_ALL_RSRC);
 	}
-#endif
-
+#else
 	/* Do not reassign resources if probe only */
 	if (!pci_has_flag(PCI_PROBE_ONLY))
 		pci_add_flags(PCI_REASSIGN_ALL_BUS);
+#endif
 
 	list_splice_init(&resources, &bridge->windows);
 	bridge->dev.parent = dev;
