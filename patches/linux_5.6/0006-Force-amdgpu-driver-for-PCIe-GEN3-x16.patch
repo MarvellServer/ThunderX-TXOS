@@ -1,0 +1,35 @@
+From c85e11009973e8c9bfb9c2c7eaf455a0b424649e Mon Sep 17 00:00:00 2001
+From: arijitde <arijitde@marvell.com>
+Date: Tue, 14 Apr 2020 01:29:15 -0400
+Subject: [PATCH] Force amdgpu driver for PCIe GEN3 x16
+
+---
+ drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c
+index 05d114a72ca1..c3278eb8a220 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c
+@@ -42,6 +42,7 @@
+ #include "amdgpu_dma_buf.h"
+ 
+ #include "amdgpu_amdkfd.h"
++#include "amd_pcie.h"
+ 
+ /*
+  * KMS wrapper.
+@@ -119,8 +120,8 @@ int amdgpu_exp_hw_support = 0;
+ int amdgpu_dc = -1;
+ int amdgpu_sched_jobs = 32;
+ int amdgpu_sched_hw_submission = 2;
+-uint amdgpu_pcie_gen_cap = 0;
+-uint amdgpu_pcie_lane_cap = 0;
++uint amdgpu_pcie_gen_cap = CAIL_PCIE_LINK_SPEED_SUPPORT_GEN3 | CAIL_ASIC_PCIE_LINK_SPEED_SUPPORT_GEN3;
++uint amdgpu_pcie_lane_cap = CAIL_PCIE_LINK_WIDTH_SUPPORT_X16;
+ uint amdgpu_cg_mask = 0xffffffff;
+ uint amdgpu_pg_mask = 0xffffffff;
+ uint amdgpu_sdma_phase_quantum = 32;
+-- 
+2.18.2
+
