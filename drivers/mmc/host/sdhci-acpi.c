@@ -35,6 +35,10 @@
 #include <linux/pci.h>
 #endif
 
+#ifdef CONFIG_ARCH_THUNDER3
+#include <asm/cputype.h>
+#endif
+
 #include "sdhci.h"
 
 enum {
@@ -767,6 +771,13 @@ static int sdhci_acpi_probe(struct platform_device *pdev)
 	}
 
 	host->mmc->caps2 |= MMC_CAP2_NO_PRESCAN_POWERUP;
+
+#ifdef	CONFIG_ARCH_THUNDER3
+	if (read_cpuid_id() == 0x430f0b80) {
+		pr_info("Enabling STOP_WITH_TC quirk for Marvell ThunderX3\n");
+		host->quirks2 = SDHCI_QUIRK2_STOP_WITH_TC;
+	}
+#endif
 
 	if (sdhci_acpi_flag(c, SDHCI_ACPI_SD_CD)) {
 		bool v = sdhci_acpi_flag(c, SDHCI_ACPI_SD_CD_OVERRIDE_LEVEL);
