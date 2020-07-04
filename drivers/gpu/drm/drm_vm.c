@@ -88,22 +88,6 @@ static pgprot_t drm_io_prot(struct drm_local_map *map,
 		tmp = pgprot_noncached(tmp);
 #elif defined(__sparc__) || defined(__arm__)
 	tmp = pgprot_noncached(tmp);
-#elif defined(__aarch64__)
-	/*
-	 * Fix up arm64 braindamage of using NORMAL_NC for write
-	 * combining when Device GRE exists specifically for the
-	 * purpose. Needed on ThunderX2.
-	 */
-	switch (read_cpuid_id() & MIDR_CPU_MODEL_MASK) {
-	case MIDR_CPU_MODEL(ARM_CPU_IMP_BRCM, BRCM_CPU_PART_VULCAN):
-	case MIDR_CPU_MODEL(0x43, 0x0af):  /* Cavium ThunderX2 */
-		tmp = pgprot_writecombine(tmp);
-		tmp = __pgprot_modify(tmp, PTE_ATTRINDX_MASK, PTE_ATTRINDX(MT_DEVICE_GRE) | PTE_PXN | PTE_UXN);
-		break;
-	default:
-		tmp = pgprot_noncached(tmp);
-		break;
-	}
 #endif
 	return tmp;
 }
