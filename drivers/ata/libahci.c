@@ -32,7 +32,7 @@
 #include "ahci.h"
 #include "libata.h"
 
-static int ahci_skip_host_reset;
+static int ahci_skip_host_reset = 1;
 int ahci_ignore_sss;
 EXPORT_SYMBOL_GPL(ahci_ignore_sss);
 

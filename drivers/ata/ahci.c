@@ -1827,6 +1827,8 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		ata_port_pbar_desc(ap, ahci_pci_bar, -1, "abar");
 		ata_port_pbar_desc(ap, ahci_pci_bar,
 				   0x100 + ap->port_no * 0x80, "port");
+		/*Disabling the Hard(Phy) and Soft reset here*/
+		ap->link.flags |= ATA_LFLAG_NO_SRST | ATA_LFLAG_NO_HRST;
 
 		/* set enclosure management message type */
 		if (ap->flags & ATA_FLAG_EM)
