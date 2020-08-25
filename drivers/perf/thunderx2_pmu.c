@@ -22,7 +22,7 @@
 
 
 #define TX2_PMU_DMC_CHANNELS		8
-#define TX2_PMU_L3_TILES		16
+#define TX2_PMU_L3_TILES		30
 
 #define TX2_PMU_HRTIMER_INTERVAL	(2 * NSEC_PER_SEC)
 #define GET_EVENTID(ev, mask)		((ev->hw.config) & mask)
@@ -35,8 +35,9 @@
 /* bits[3:0] to select counters, are indexed from 8 to 15. */
 #define CCPI2_COUNTER_OFFSET		8
 
-#define L3C_COUNTER_CTL			0xA8
-#define L3C_COUNTER_DATA		0xAC
+#define L3C_COUNTER_CTL			0x50
+#define L3C_COUNTER_DATA		0x54
+#define L3C_TILE_OFFSET                 0x10000
 #define DMC_COUNTER_CTL			0x258
 #define DMC_COUNTER_DATA		0x264
 #define DMC_CHANNEL_OFFSET              0x10000
@@ -367,20 +368,29 @@ static void uncore_start_event_l3c(struct perf_event *event, int flags)
 	u32 val, emask;
 	struct hw_perf_event *hwc = &event->hw;
 	struct tx2_uncore_pmu *tx2_pmu;
+	int cnt = 0;
 
 	tx2_pmu = pmu_to_tx2_pmu(event->pmu);
 	emask = tx2_pmu->events_mask;
 
-	/* event id encoded in bits [07:03] */
-	val = GET_EVENTID(event, emask) << 3;
-	reg_writel(val, hwc->config_base);
-	local64_set(&hwc->prev_count, 0);
-	reg_writel(0, hwc->event_base);
+	while (cnt < TX2_PMU_L3_TILES) {
+		/* event id encoded in bits [07:03] */
+		val = GET_EVENTID(event, emask) << 3;
+		reg_writel(val, hwc->config_base + (cnt * L3C_TILE_OFFSET));
+		local64_set(&hwc->prev_count, 0);
+		reg_writel(0, hwc->event_base + (cnt * L3C_TILE_OFFSET));
+		cnt++;
+	}
 }
 
 static inline void uncore_stop_event_l3c(struct perf_event *event)
 {
-	reg_writel(0, event->hw.config_base);
+	int cnt = 0;
+
+	while (cnt < TX2_PMU_L3_TILES) {
+		reg_writel(0, event->hw.config_base + (cnt * L3C_TILE_OFFSET));
+		cnt++;
+	}
 }
 
 static void uncore_start_event_dmc(struct perf_event *event, int flags)
@@ -466,7 +476,7 @@ static void uncore_stop_event_ccpi2(struct perf_event *event)
 
 static void tx2_uncore_event_update(struct perf_event *event)
 {
-	u64 prev, delta, diff, new = 0;
+	u64 prev, delta = 0, diff, new = 0;
 	struct hw_perf_event *hwc = &event->hw;
 	struct tx2_uncore_pmu *tx2_pmu;
 	enum tx2_uncore_type type;
@@ -491,6 +501,18 @@ static void tx2_uncore_event_update(struct perf_event *event)
 		prev = local64_xchg(&hwc->prev_count, new);
 		delta = new - prev;
 		break;
+	case PMU_TYPE_L3C:
+		while (cnt < TX2_PMU_L3_TILES) {
+			new = reg_readl(hwc->event_base + (cnt * L3C_TILE_OFFSET) + 0x4);
+			new = (new << 32) + reg_readl(hwc->event_base + (cnt * L3C_TILE_OFFSET));
+			prev = local64_xchg(&hwc->prev_count, new);
+			/* handles rollover of 32 bit counter */
+			diff = new - prev;
+			local64_set(&hwc->prev_count, 0);
+			delta += diff;
+			cnt++;
+		}
+		break;
 	case PMU_TYPE_DMC:
 		while (cnt < TX2_PMU_DMC_CHANNELS) {
 			new = reg_readl(hwc->event_base + (cnt * DMC_CHANNEL_OFFSET)  + 0x4);
@@ -512,7 +534,7 @@ static void tx2_uncore_event_update(struct perf_event *event)
 			GET_EVENTID(event, emask) == DMC_EVENT_DATA_TRANSFERS)
 		delta = delta/4;
 
-	/* L3C and DMC has 16 and 8 interleave channels respectively.
+	/* L3C and DMC has 30 and 8 interleave channels respectively.
 	 * The sampled value is for channel 0 and multiplied with
 	 * prorate_factor to get the count for a device.
 	 */
@@ -806,7 +828,7 @@ static struct tx2_uncore_pmu *tx2_uncore_pmu_init_dev(struct device *dev,
 	case PMU_TYPE_L3C:
 		tx2_pmu->max_counters = TX2_PMU_DMC_L3C_MAX_COUNTERS;
 		tx2_pmu->counters_mask = 0x3;
-		tx2_pmu->prorate_factor = TX2_PMU_L3_TILES;
+		tx2_pmu->prorate_factor = 1;
 		tx2_pmu->max_events = L3_EVENT_MAX;
 		tx2_pmu->events_mask = 0x1f;
 		tx2_pmu->attr_groups = l3c_pmu_attr_groups;
