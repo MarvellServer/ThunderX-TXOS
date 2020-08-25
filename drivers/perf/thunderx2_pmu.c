@@ -99,15 +99,12 @@ struct tx2_uncore_pmu {
 	u32 prorate_factor;
 	u32 max_events;
 	u32 events_mask;
-	u64 hrtimer_interval;
 	void __iomem *base;
 	DECLARE_BITMAP(active_counters, TX2_PMU_MAX_COUNTERS);
 	struct perf_event *events[TX2_PMU_MAX_COUNTERS];
 	struct device *dev;
-	struct hrtimer hrtimer;
 	const struct attribute_group **attr_groups;
 	enum tx2_uncore_type type;
-	enum hrtimer_restart (*hrtimer_callback)(struct hrtimer *cb);
 	void (*init_cntr_base)(struct perf_event *event,
 			struct tx2_uncore_pmu *tx2_pmu);
 	void (*stop_event)(struct perf_event *event);
@@ -617,18 +614,6 @@ static void tx2_uncore_event_start(struct perf_event *event, int flags)
 
 	tx2_pmu->start_event(event, flags);
 	perf_event_update_userpage(event);
-
-	/* No hrtimer needed for CCPI2, 64-bit counters */
-	if (!tx2_pmu->hrtimer_callback)
-		return;
-
-	/* Start timer for first event */
-	if (bitmap_weight(tx2_pmu->active_counters,
-				tx2_pmu->max_counters) == 1) {
-		hrtimer_start(&tx2_pmu->hrtimer,
-			ns_to_ktime(tx2_pmu->hrtimer_interval),
-			HRTIMER_MODE_REL_PINNED);
-	}
 }
 
 static void tx2_uncore_event_stop(struct perf_event *event, int flags)
@@ -687,37 +672,11 @@ static void tx2_uncore_event_del(struct perf_event *event, int flags)
 	perf_event_update_userpage(event);
 	tx2_pmu->events[hwc->idx] = NULL;
 	hwc->idx = -1;
-
-	if (!tx2_pmu->hrtimer_callback)
-		return;
-
-	if (bitmap_empty(tx2_pmu->active_counters, tx2_pmu->max_counters))
-		hrtimer_cancel(&tx2_pmu->hrtimer);
 }
 
 static void tx2_uncore_event_read(struct perf_event *event)
 {
 	tx2_uncore_event_update(event);
-}
-
-static enum hrtimer_restart tx2_hrtimer_callback(struct hrtimer *timer)
-{
-	struct tx2_uncore_pmu *tx2_pmu;
-	int max_counters, idx;
-
-	tx2_pmu = container_of(timer, struct tx2_uncore_pmu, hrtimer);
-	max_counters = tx2_pmu->max_counters;
-
-	if (bitmap_empty(tx2_pmu->active_counters, max_counters))
-		return HRTIMER_NORESTART;
-
-	for_each_set_bit(idx, tx2_pmu->active_counters, max_counters) {
-		struct perf_event *event = tx2_pmu->events[idx];
-
-		tx2_uncore_event_update(event);
-	}
-	hrtimer_forward_now(timer, ns_to_ktime(tx2_pmu->hrtimer_interval));
-	return HRTIMER_RESTART;
 }
 
 static int tx2_uncore_pmu_register(
@@ -754,12 +713,6 @@ static int tx2_uncore_pmu_add_dev(struct tx2_uncore_pmu *tx2_pmu)
 			cpu_online_mask);
 
 	tx2_pmu->cpu = cpu;
-
-	if (tx2_pmu->hrtimer_callback) {
-		hrtimer_init(&tx2_pmu->hrtimer,
-				CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-		tx2_pmu->hrtimer.function = tx2_pmu->hrtimer_callback;
-	}
 
 	ret = tx2_uncore_pmu_register(tx2_pmu);
 	if (ret) {
@@ -836,8 +789,6 @@ static struct tx2_uncore_pmu *tx2_uncore_pmu_init_dev(struct device *dev,
 		tx2_pmu->prorate_factor = TX2_PMU_L3_TILES;
 		tx2_pmu->max_events = L3_EVENT_MAX;
 		tx2_pmu->events_mask = 0x1f;
-		tx2_pmu->hrtimer_interval = TX2_PMU_HRTIMER_INTERVAL;
-		tx2_pmu->hrtimer_callback = tx2_hrtimer_callback;
 		tx2_pmu->attr_groups = l3c_pmu_attr_groups;
 		tx2_pmu->name = devm_kasprintf(dev, GFP_KERNEL,
 				"uncore_l3c_%d", tx2_pmu->node);
@@ -851,8 +802,6 @@ static struct tx2_uncore_pmu *tx2_uncore_pmu_init_dev(struct device *dev,
 		tx2_pmu->prorate_factor = TX2_PMU_DMC_CHANNELS;
 		tx2_pmu->max_events = DMC_EVENT_MAX;
 		tx2_pmu->events_mask = 0x1f;
-		tx2_pmu->hrtimer_interval = TX2_PMU_HRTIMER_INTERVAL;
-		tx2_pmu->hrtimer_callback = tx2_hrtimer_callback;
 		tx2_pmu->attr_groups = dmc_pmu_attr_groups;
 		tx2_pmu->name = devm_kasprintf(dev, GFP_KERNEL,
 				"uncore_dmc_%d", tx2_pmu->node);
@@ -873,7 +822,6 @@ static struct tx2_uncore_pmu *tx2_uncore_pmu_init_dev(struct device *dev,
 		tx2_pmu->init_cntr_base = init_cntr_base_ccpi2;
 		tx2_pmu->start_event = uncore_start_event_ccpi2;
 		tx2_pmu->stop_event = uncore_stop_event_ccpi2;
-		tx2_pmu->hrtimer_callback = NULL;
 		break;
 	case PMU_TYPE_INVALID:
 		devm_kfree(dev, tx2_pmu);
@@ -942,9 +890,6 @@ static int tx2_uncore_pmu_offline_cpu(unsigned int cpu,
 
 	if (cpu != tx2_pmu->cpu)
 		return 0;
-
-	if (tx2_pmu->hrtimer_callback)
-		hrtimer_cancel(&tx2_pmu->hrtimer);
 
 	cpumask_copy(&cpu_online_mask_temp, cpu_online_mask);
 	cpumask_clear_cpu(cpu, &cpu_online_mask_temp);
