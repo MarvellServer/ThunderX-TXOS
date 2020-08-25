@@ -37,8 +37,9 @@
 
 #define L3C_COUNTER_CTL			0xA8
 #define L3C_COUNTER_DATA		0xAC
-#define DMC_COUNTER_CTL			0x234
-#define DMC_COUNTER_DATA		0x240
+#define DMC_COUNTER_CTL			0x258
+#define DMC_COUNTER_DATA		0x264
+#define DMC_CHANNEL_OFFSET              0x10000
 
 #define CCPI2_PERF_CTL			0x108
 #define CCPI2_COUNTER_CTL		0x10C
@@ -387,7 +388,7 @@ static void uncore_start_event_dmc(struct perf_event *event, int flags)
 	u32 val, cmask, emask;
 	struct hw_perf_event *hwc = &event->hw;
 	struct tx2_uncore_pmu *tx2_pmu;
-	int idx, event_id;
+	int idx, event_id, cnt = 0;
 
 	tx2_pmu = pmu_to_tx2_pmu(event->pmu);
 	cmask = tx2_pmu->counters_mask;
@@ -399,12 +400,15 @@ static void uncore_start_event_dmc(struct perf_event *event, int flags)
 	/* enable and start counters.
 	 * 8 bits for each counter, bits[05:01] of a counter to set event type.
 	 */
-	val = reg_readl(hwc->config_base);
-	val &= ~DMC_EVENT_CFG(idx, 0x1f);
-	val |= DMC_EVENT_CFG(idx, event_id);
-	reg_writel(val, hwc->config_base);
-	local64_set(&hwc->prev_count, 0);
-	reg_writel(0, hwc->event_base);
+	while (cnt < TX2_PMU_DMC_CHANNELS) {
+		val = reg_readl(hwc->config_base + (cnt * DMC_CHANNEL_OFFSET));
+		val &= ~DMC_EVENT_CFG(idx, 0x1f);
+		val |= DMC_EVENT_CFG(idx, event_id);
+		reg_writel(val, hwc->config_base + (cnt * DMC_CHANNEL_OFFSET));
+		local64_set(&hwc->prev_count, 0);
+		reg_writel(0, hwc->event_base + (cnt * DMC_CHANNEL_OFFSET));
+		cnt++;
+	}
 }
 
 static void uncore_stop_event_dmc(struct perf_event *event)
@@ -412,16 +416,19 @@ static void uncore_stop_event_dmc(struct perf_event *event)
 	u32 val, cmask;
 	struct hw_perf_event *hwc = &event->hw;
 	struct tx2_uncore_pmu *tx2_pmu;
-	int idx;
+	int idx, cnt = 0;
 
 	tx2_pmu = pmu_to_tx2_pmu(event->pmu);
 	cmask = tx2_pmu->counters_mask;
 	idx = GET_COUNTERID(event, cmask);
 
-	/* clear event type(bits[05:01]) to stop counter */
-	val = reg_readl(hwc->config_base);
-	val &= ~DMC_EVENT_CFG(idx, 0x1f);
-	reg_writel(val, hwc->config_base);
+	while (cnt < TX2_PMU_DMC_CHANNELS) {
+		/* clear event type(bits[05:01]) to stop counter */
+		val = reg_readl(hwc->config_base + (cnt * DMC_CHANNEL_OFFSET));
+		val &= ~DMC_EVENT_CFG(idx, 0x1f);
+		reg_writel(val, hwc->config_base + (cnt * DMC_CHANNEL_OFFSET));
+		cnt++;
+	}
 }
 
 static void uncore_start_event_ccpi2(struct perf_event *event, int flags)
@@ -459,19 +466,22 @@ static void uncore_stop_event_ccpi2(struct perf_event *event)
 
 static void tx2_uncore_event_update(struct perf_event *event)
 {
-	u64 prev, delta, new = 0;
+	u64 prev, delta, diff, new = 0;
 	struct hw_perf_event *hwc = &event->hw;
 	struct tx2_uncore_pmu *tx2_pmu;
 	enum tx2_uncore_type type;
 	u32 prorate_factor;
 	u32 cmask, emask;
+	int cnt = 0;
 
 	tx2_pmu = pmu_to_tx2_pmu(event->pmu);
 	type = tx2_pmu->type;
 	cmask = tx2_pmu->counters_mask;
 	emask = tx2_pmu->events_mask;
 	prorate_factor = tx2_pmu->prorate_factor;
-	if (type == PMU_TYPE_CCPI2) {
+
+	switch (type) {
+	case PMU_TYPE_CCPI2:
 		reg_writel(CCPI2_COUNTER_OFFSET +
 				GET_COUNTERID(event, cmask),
 				hwc->event_base + CCPI2_COUNTER_SEL);
@@ -480,11 +490,21 @@ static void tx2_uncore_event_update(struct perf_event *event)
 			reg_readl(hwc->event_base + CCPI2_COUNTER_DATA_L);
 		prev = local64_xchg(&hwc->prev_count, new);
 		delta = new - prev;
-	} else {
-		new = reg_readl(hwc->event_base);
-		prev = local64_xchg(&hwc->prev_count, new);
-		/* handles rollover of 32 bit counter */
-		delta = (u32)(((1UL << 32) - prev) + new);
+		break;
+	case PMU_TYPE_DMC:
+		while (cnt < TX2_PMU_DMC_CHANNELS) {
+			new = reg_readl(hwc->event_base + (cnt * DMC_CHANNEL_OFFSET)  + 0x4);
+			new = (new << 32) + reg_readl(hwc->event_base + (cnt * DMC_CHANNEL_OFFSET));
+			prev = local64_xchg(&hwc->prev_count, new);
+			/* handles rollover of 32 bit counter */
+			diff = new - prev;
+			local64_set(&hwc->prev_count, 0);
+			delta += diff;
+			cnt++;
+		}
+		break;
+	case PMU_TYPE_INVALID:
+		break;
 	}
 
 	/* DMC event data_transfers granularity is 16 Bytes, convert it to 64 */
@@ -799,7 +819,7 @@ static struct tx2_uncore_pmu *tx2_uncore_pmu_init_dev(struct device *dev,
 	case PMU_TYPE_DMC:
 		tx2_pmu->max_counters = TX2_PMU_DMC_L3C_MAX_COUNTERS;
 		tx2_pmu->counters_mask = 0x3;
-		tx2_pmu->prorate_factor = TX2_PMU_DMC_CHANNELS;
+		tx2_pmu->prorate_factor = 1;
 		tx2_pmu->max_events = DMC_EVENT_MAX;
 		tx2_pmu->events_mask = 0x1f;
 		tx2_pmu->attr_groups = dmc_pmu_attr_groups;
