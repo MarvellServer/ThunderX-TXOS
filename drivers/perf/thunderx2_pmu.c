@@ -322,16 +322,18 @@ static void init_cntr_base_l3c(struct perf_event *event,
 		struct tx2_uncore_pmu *tx2_pmu)
 {
 	struct hw_perf_event *hwc = &event->hw;
-	u32 cmask;
+	u32 cmask, offset = 0;
 
 	tx2_pmu = pmu_to_tx2_pmu(event->pmu);
 	cmask = tx2_pmu->counters_mask;
 
+	if (GET_COUNTERID(event, cmask) > 1)
+		offset = 0x18;
 	/* counter ctrl/data reg offset at 8 */
 	hwc->config_base = (unsigned long)tx2_pmu->base
-		+ L3C_COUNTER_CTL + (8 * GET_COUNTERID(event, cmask));
+		+ L3C_COUNTER_CTL + offset + (0xc * GET_COUNTERID(event, cmask));
 	hwc->event_base =  (unsigned long)tx2_pmu->base
-		+ L3C_COUNTER_DATA + (8 * GET_COUNTERID(event, cmask));
+		+ L3C_COUNTER_DATA + offset + (0xc * GET_COUNTERID(event, cmask));
 }
 
 static void init_cntr_base_dmc(struct perf_event *event,
@@ -347,7 +349,7 @@ static void init_cntr_base_dmc(struct perf_event *event,
 		+ DMC_COUNTER_CTL;
 	/* counter data reg offset at 0xc */
 	hwc->event_base = (unsigned long)tx2_pmu->base
-		+ DMC_COUNTER_DATA + (0xc * GET_COUNTERID(event, cmask));
+		+ DMC_COUNTER_DATA + (0x10 * GET_COUNTERID(event, cmask));
 }
 
 static void init_cntr_base_ccpi2(struct perf_event *event,
