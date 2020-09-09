@@ -166,6 +166,11 @@ static const struct apd_device_desc thunderx2_i2c_desc = {
 	.fixed_clk_rate = 125000000,
 };
 
+static const struct apd_device_desc thunderx3_i2c_desc = {
+	.setup = acpi_apd_setup,
+	.fixed_clk_rate = 125000000,
+};
+
 static const struct apd_device_desc nxp_i2c_desc = {
 	.setup = acpi_apd_setup,
 	.fixed_clk_rate = 350000000,
@@ -241,6 +246,7 @@ static const struct acpi_device_id acpi_apd_device_ids[] = {
 	{ "BRCM900D", APD_ADDR(vulcan_spi_desc) },
 	{ "CAV900D",  APD_ADDR(vulcan_spi_desc) },
 	{ "CAV9007",  APD_ADDR(thunderx2_i2c_desc) },
+	{ "CAV9008",  APD_ADDR(thunderx3_i2c_desc) },
 	{ "HISI02A1", APD_ADDR(hip07_i2c_desc) },
 	{ "HISI02A2", APD_ADDR(hip08_i2c_desc) },
 	{ "HISI0173", APD_ADDR(hip08_spi_desc) },
