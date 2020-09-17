@@ -3451,7 +3451,9 @@ static int arm_smmu_device_hw_probe(struct arm_smmu_device *smmu)
 		smmu->pgsize_bitmap |= SZ_4K | SZ_2M | SZ_1G;
 
 	/* Input address size */
-	if (FIELD_GET(IDR5_VAX, reg) == IDR5_VAX_52_BIT)
+	if ((FIELD_GET(IDR5_VAX, reg) == IDR5_VAX_52_BIT) ||
+	     ((read_cpuid_id() & MIDR_CPU_MODEL_MASK) ==
+	      MIDR_CAVIUM_THUNDERX3))
 		smmu->features |= ARM_SMMU_FEAT_VAX;
 
 	/* Output address size */
