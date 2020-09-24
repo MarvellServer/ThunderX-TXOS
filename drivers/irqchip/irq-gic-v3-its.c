@@ -170,6 +170,8 @@ static DEFINE_RAW_SPINLOCK(vmovp_lock);
 
 static DEFINE_IDA(its_vpeid_ida);
 
+static int lpi_alloc_multiples_128 = 1;
+
 #define gic_data_rdist()		(raw_cpu_ptr(gic_rdists->rdist))
 #define gic_data_rdist_cpu(cpu)		(per_cpu_ptr(gic_rdists->rdist, cpu))
 #define gic_data_rdist_rd_base()	(gic_data_rdist()->rd_base)
@@ -2395,7 +2397,6 @@ static bool its_alloc_vpe_table(u32 vpe_id)
 	return true;
 }
 
-#define LPI_ALLOC_MULTIPLES_128 128
 static struct its_device *its_create_device(struct its_node *its, u32 dev_id,
 					    int nvecs, bool alloc_lpis)
 {
@@ -2420,12 +2421,12 @@ static struct its_device *its_create_device(struct its_node *its, u32 dev_id,
 	 * Even if the device wants a single LPI, the ITT must be
 	 * sized as a power of two (and you need at least one bit...).
 	 */
-	nr_ites = max(2, nvecs*LPI_ALLOC_MULTIPLES_128);
+	nr_ites = max(2, nvecs * lpi_alloc_multiples_128);
 	sz = nr_ites * its->ite_size;
 	sz = max(sz, ITS_ITT_ALIGN) + ITS_ITT_ALIGN - 1;
 	itt = kzalloc_node(sz, GFP_KERNEL, its->numa_node);
 	if (alloc_lpis) {
-		lpi_map = its_lpi_alloc(nvecs*LPI_ALLOC_MULTIPLES_128, &lpi_base, &nr_lpis);
+		lpi_map = its_lpi_alloc(nvecs * lpi_alloc_multiples_128, &lpi_base, &nr_lpis);
 		if (lpi_map)
 			col_map = kcalloc(nr_lpis, sizeof(*col_map),
 					  GFP_KERNEL);
@@ -2587,7 +2588,7 @@ static int its_irq_domain_alloc(struct irq_domain *domain, unsigned int virq,
 	int err;
 	int i;
 
-	err = its_alloc_device_irq(its_dev, nr_irqs*LPI_ALLOC_MULTIPLES_128, &hwirq);
+	err = its_alloc_device_irq(its_dev, nr_irqs * lpi_alloc_multiples_128, &hwirq);
 	if (err)
 		return err;
 
@@ -2660,7 +2661,7 @@ static void its_irq_domain_free(struct irq_domain *domain, unsigned int virq,
 
 	bitmap_release_region(its_dev->event_map.lpi_map,
 			      its_get_event_id(irq_domain_get_irq_data(domain, virq)),
-			      get_count_order(nr_irqs*LPI_ALLOC_MULTIPLES_128));
+			      get_count_order(nr_irqs * lpi_alloc_multiples_128));
 
 	for (i = 0; i < nr_irqs; i++) {
 		struct irq_data *data = irq_domain_get_irq_data(domain,
@@ -3679,6 +3680,13 @@ static int __init its_probe_one(struct resource *res,
 			its->flags |= ITS_FLAGS_CMDQ_NEEDS_FLUSHING;
 		}
 	}
+
+	if ((read_cpuid_id() & MIDR_CPU_MODEL_MASK) == MIDR_CAVIUM_THUNDERX3) {
+		lpi_alloc_multiples_128 = 128;
+		pr_info("ITS: allocate lpi numbers multiples of 128, max possible lpis 448\n");
+	}
+	else
+		lpi_alloc_multiples_128 = 1;
 
 	gits_write_cwriter(0, its->base + GITS_CWRITER);
 	ctlr = readl_relaxed(its->base + GITS_CTLR);
