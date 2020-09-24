@@ -1819,23 +1819,23 @@ retry_baser:
 
 	its_write_baser(its, baser, val);
 	tmp = baser->val;
-
-	if ((val ^ tmp) & GITS_BASER_SHAREABILITY_MASK) {
-		/*
-		 * Shareability didn't stick. Just use
-		 * whatever the read reported, which is likely
-		 * to be the only thing this redistributor
-		 * supports. If that's zero, make it
-		 * non-cacheable as well.
-		 */
-		shr = tmp & GITS_BASER_SHAREABILITY_MASK;
-		if (!shr) {
-			cache = GITS_BASER_nC;
-			gic_flush_dcache_to_poc(base, PAGE_ORDER_TO_SIZE(order));
+	if (!((read_cpuid_id() & MIDR_CPU_MODEL_MASK) == MIDR_CAVIUM_THUNDERX3)) {
+		if ((val ^ tmp) & GITS_BASER_SHAREABILITY_MASK) {
+			/*
+			 * Shareability didn't stick. Just use
+			 * whatever the read reported, which is likely
+			 * to be the only thing this redistributor
+			 * supports. If that's zero, make it
+			 * non-cacheable as well.
+			 */
+			shr = tmp & GITS_BASER_SHAREABILITY_MASK;
+			if (!shr) {
+				cache = GITS_BASER_nC;
+				gic_flush_dcache_to_poc(base, PAGE_ORDER_TO_SIZE(order));
+			}
+			goto retry_baser;
 		}
-		goto retry_baser;
 	}
-
 	if ((val ^ tmp) & GITS_BASER_PAGE_SIZE_MASK) {
 		/*
 		 * Page size didn't stick. Let's try a smaller
@@ -1854,15 +1854,15 @@ retry_baser:
 			goto retry_alloc_baser;
 		}
 	}
-
-	if (val != tmp) {
-		pr_err("ITS@%pa: %s doesn't stick: %llx %llx\n",
-		       &its->phys_base, its_base_type_string[type],
-		       val, tmp);
-		free_pages((unsigned long)base, order);
-		return -ENXIO;
+	if (!((read_cpuid_id() & MIDR_CPU_MODEL_MASK) == MIDR_CAVIUM_THUNDERX3)) {
+		if (val != tmp) {
+			pr_err("ITS@%pa: %s doesn't stick: %llx %llx\n",
+			       &its->phys_base, its_base_type_string[type],
+			       val, tmp);
+			free_pages((unsigned long)base, order);
+			return -ENXIO;
+		}
 	}
-
 	baser->order = order;
 	baser->base = base;
 	baser->psz = psz;
@@ -2153,23 +2153,23 @@ static void its_cpu_init_lpis(void)
 
 	gicr_write_propbaser(val, rbase + GICR_PROPBASER);
 	tmp = gicr_read_propbaser(rbase + GICR_PROPBASER);
-
-	if ((tmp ^ val) & GICR_PROPBASER_SHAREABILITY_MASK) {
-		if (!(tmp & GICR_PROPBASER_SHAREABILITY_MASK)) {
-			/*
-			 * The HW reports non-shareable, we must
-			 * remove the cacheability attributes as
-			 * well.
-			 */
-			val &= ~(GICR_PROPBASER_SHAREABILITY_MASK |
-				 GICR_PROPBASER_CACHEABILITY_MASK);
-			val |= GICR_PROPBASER_nC;
-			gicr_write_propbaser(val, rbase + GICR_PROPBASER);
+	if (!((read_cpuid_id() & MIDR_CPU_MODEL_MASK) == MIDR_CAVIUM_THUNDERX3)) {
+		if ((tmp ^ val) & GICR_PROPBASER_SHAREABILITY_MASK) {
+			if (!(tmp & GICR_PROPBASER_SHAREABILITY_MASK)) {
+				/*
+				 * The HW reports non-shareable, we must
+				 * remove the cacheability attributes as
+				 * well.
+				 */
+				val &= ~(GICR_PROPBASER_SHAREABILITY_MASK |
+					 GICR_PROPBASER_CACHEABILITY_MASK);
+				val |= GICR_PROPBASER_nC;
+				gicr_write_propbaser(val, rbase + GICR_PROPBASER);
+			}
+			pr_info_once("GIC: using cache flushing for LPI property table\n");
+			gic_rdists->flags |= RDIST_FLAGS_PROPBASE_NEEDS_FLUSHING;
 		}
-		pr_info_once("GIC: using cache flushing for LPI property table\n");
-		gic_rdists->flags |= RDIST_FLAGS_PROPBASE_NEEDS_FLUSHING;
 	}
-
 	/* set PENDBASE */
 	val = (page_to_phys(pend_page) |
 	       GICR_PENDBASER_InnerShareable |
@@ -2178,18 +2178,18 @@ static void its_cpu_init_lpis(void)
 
 	gicr_write_pendbaser(val, rbase + GICR_PENDBASER);
 	tmp = gicr_read_pendbaser(rbase + GICR_PENDBASER);
-
-	if (!(tmp & GICR_PENDBASER_SHAREABILITY_MASK)) {
-		/*
-		 * The HW reports non-shareable, we must remove the
-		 * cacheability attributes as well.
-		 */
-		val &= ~(GICR_PENDBASER_SHAREABILITY_MASK |
-			 GICR_PENDBASER_CACHEABILITY_MASK);
-		val |= GICR_PENDBASER_nC;
-		gicr_write_pendbaser(val, rbase + GICR_PENDBASER);
+	if (!((read_cpuid_id() & MIDR_CPU_MODEL_MASK) == MIDR_CAVIUM_THUNDERX3)) {
+		if (!(tmp & GICR_PENDBASER_SHAREABILITY_MASK)) {
+			/*
+			 * The HW reports non-shareable, we must remove the
+			 * cacheability attributes as well.
+			 */
+			val &= ~(GICR_PENDBASER_SHAREABILITY_MASK |
+				 GICR_PENDBASER_CACHEABILITY_MASK);
+			val |= GICR_PENDBASER_nC;
+			gicr_write_pendbaser(val, rbase + GICR_PENDBASER);
+		}
 	}
-
 	/* Enable LPIs */
 	val = readl_relaxed(rbase + GICR_CTLR);
 	val |= GICR_CTLR_ENABLE_LPIS;
@@ -3662,21 +3662,22 @@ static int __init its_probe_one(struct resource *res,
 
 	gits_write_cbaser(baser, its->base + GITS_CBASER);
 	tmp = gits_read_cbaser(its->base + GITS_CBASER);
-
-	if ((tmp ^ baser) & GITS_CBASER_SHAREABILITY_MASK) {
-		if (!(tmp & GITS_CBASER_SHAREABILITY_MASK)) {
-			/*
-			 * The HW reports non-shareable, we must
-			 * remove the cacheability attributes as
-			 * well.
-			 */
-			baser &= ~(GITS_CBASER_SHAREABILITY_MASK |
-				   GITS_CBASER_CACHEABILITY_MASK);
-			baser |= GITS_CBASER_nC;
-			gits_write_cbaser(baser, its->base + GITS_CBASER);
+	if (!((read_cpuid_id() & MIDR_CPU_MODEL_MASK) == MIDR_CAVIUM_THUNDERX3)) {
+		if ((tmp ^ baser) & GITS_CBASER_SHAREABILITY_MASK) {
+			if (!(tmp & GITS_CBASER_SHAREABILITY_MASK)) {
+				/*
+				 * The HW reports non-shareable, we must
+				 * remove the cacheability attributes as
+				 * well.
+				 */
+				baser &= ~(GITS_CBASER_SHAREABILITY_MASK |
+					   GITS_CBASER_CACHEABILITY_MASK);
+				baser |= GITS_CBASER_nC;
+				gits_write_cbaser(baser, its->base + GITS_CBASER);
+			}
+			pr_info("ITS: using cache flushing for cmd queue\n");
+			its->flags |= ITS_FLAGS_CMDQ_NEEDS_FLUSHING;
 		}
-		pr_info("ITS: using cache flushing for cmd queue\n");
-		its->flags |= ITS_FLAGS_CMDQ_NEEDS_FLUSHING;
 	}
 
 	gits_write_cwriter(0, its->base + GITS_CWRITER);
